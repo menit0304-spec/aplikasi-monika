@@ -1,0 +1,61 @@
+export type RoomStatus = "AVAILABLE" | "BOOKED" | "CHECKED-IN" | "CHECKED-OUT";
+
+export interface Room {
+  id: string;
+  type: string;
+  status: RoomStatus;
+  floor: number;
+  capacity?: string;
+  facilities?: string[];
+  price?: number;
+  guestName?: string | null;
+  guestId?: number | null;
+  phoneNumber?: string | null;
+  paymentStatus?: "Lunas" | "Belum Lunas";
+  imageUrl?: string;
+  hasPendingCheckOut?: boolean;
+}
+
+export interface Guest {
+  id: string;
+  name: string;
+  idNumber: string;
+  phoneNumber?: string;
+  checkIn: string;
+  checkOut: string;
+  roomType: string;
+  roomNumber: string;
+  status: RoomStatus;
+  totalPayment?: number;
+  paymentStatus?: "Lunas" | "Belum Lunas";
+  nights?: number;
+  imageUrl?: string;
+}
+
+export interface Reservation {
+  id: number;
+  guest_id: number;
+  guest_name?: string;
+  room_number: string;
+  check_in: string;
+  check_out: string;
+  total_nights: number;
+  total_payment: number;
+  amount_paid?: number;
+  down_payment?: number;
+  discount_type?: string;
+  discount_amount?: number;
+  payment_status: "Lunas" | "Belum Lunas";
+  payment_method?: "Tunai" | "Transfer Bank" | string;
+  reservation_status: "BOOKED" | "CHECKED-IN" | "CHECKED-OUT" | "CANCELLED";
+}
+
+export interface User {
+  id: number;
+  username: string;
+  fullName: string;
+  isAdmin: boolean;
+  role?: string;
+}
+
+export type View = "home" | "booking" | "search" | "units" | "guests" | "room-detail" | "login" | "staff";

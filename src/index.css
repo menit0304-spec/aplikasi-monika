@@ -1,0 +1,37 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@400;600;700;800&family=Inter:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+@theme {
+  --font-headline: "Manrope", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-body: "Inter", ui-sans-serif, system-ui, sans-serif;
+  
+  /* Precision Curator Theme Colors */
+  --color-primary: #0061a4;
+  --color-primary-container: #2196f3;
+  --color-on-surface: #1a1c1c;
+  --color-on-surface-variant: #404752;
+  --color-outline: #707883;
+  --color-outline-variant: #bfc7d4;
+  --color-surface-container: #efeeed;
+  --color-surface-container-low: #f4f3f3;
+  --color-surface-container-lowest: #ffffff;
+  --color-surface-container-high: #e9e8e8;
+  --color-surface-container-highest: #e3e2e2;
+  --color-background: #faf9f9;
+  
+  /* Status Colors */
+  --color-status-available: #91f78e;
+  --color-status-on-available: #00731e;
+  --color-status-booked: #2196f3;
+  --color-status-on-booked: #002c4f;
+  --color-status-checked-in: #d37d00;
+  --color-status-on-checked-in: #422300;
+  --color-status-checked-out: #e3e2e2;
+  --color-status-on-checked-out: #404752;
+}
+
+@layer base {
+  body {
+    @apply bg-background text-on-surface font-body antialiased;
+  }
+}

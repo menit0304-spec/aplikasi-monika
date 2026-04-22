@@ -1,0 +1,29 @@
+{
+  "name": "Hotel Monika Yogyakarta",
+  "short_name": "HotelMonika",
+  "description": "Sistem aplikasi booking dan manajemen operasional Hotel Monika Yogyakarta.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#1a1c1c",
+  "icons": [
+    {
+      "src": "https://picsum.photos/seed/hotel-monika-192/192/192",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://picsum.photos/seed/hotel-monika-512/512/512",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "https://picsum.photos/seed/hotel-monika-mask/512/512",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}
