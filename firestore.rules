@@ -1,64 +1,8 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Default deny
     match /{document=**} {
-      allow read, write: if false;
-    }
-
-    // Helper functions
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function isValidId(id) {
-      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
-    }
-
-    function incoming() {
-      return request.resource.data;
-    }
-
-    function existing() {
-      return resource.data;
-    }
-
-    function isAdmin() {
-      // In this app, we check if the user.email is in a list or has a specific claim.
-      // For simplicity in AI Studio, we often allow based on auth.token.email if known,
-      // but let's stick to isSignedIn() for now or specific admin collection lookup.
-      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
-             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
-    }
-
-    match /users/{userId} {
-      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
-      allow write: if isAdmin();
-    }
-
-    match /guests/{guestId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
-    }
-
-    match /rooms/{roomId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
-    }
-
-    match /room_types/{typeId} {
-      allow read: if isSignedIn();
-      allow write: if isAdmin();
-    }
-
-    match /reservations/{resId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
-    }
-
-    match /transactions/{transId} {
-      allow read: if isSignedIn();
-      allow write: if isSignedIn();
+      allow read, write: if true;
     }
   }
 }
