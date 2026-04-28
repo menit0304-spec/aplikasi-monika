@@ -259,7 +259,7 @@ async function startServer() {
   setInterval(async () => {
     try {
       const now = new Date();
-      const fortyEightHoursAgo = new Date(now.getTime() - (48 * 60 * 60 * 1000));
+      const twentyFourHoursAgo = new Date(now.getTime() - (24 * 60 * 60 * 1000));
       
       const q = query(
         collection(db, "reservations"),
@@ -271,7 +271,7 @@ async function startServer() {
         const data = resDoc.data();
         if (data.created_at) {
           const createdAt = new Date(data.created_at);
-          if (createdAt < fortyEightHoursAgo && data.payment_status !== 'Lunas') {
+          if (createdAt < twentyFourHoursAgo && data.payment_status !== 'Lunas' && data.payment_status !== 'Lunas Online') {
             await updateDoc(resDoc.ref, { reservation_status: 'CANCELLED' });
             console.log(`[JOB] Auto-cancelled reservation ${resDoc.id} due to payment timeout`);
           }
@@ -540,11 +540,11 @@ async function startServer() {
         return res.status(400).json({ error: overlaps.join(", ") });
       }
 
+      // 2. Fetch guest outside transaction to avoid getDocs inside transaction
+      const gQuery = query(collection(db, "guests"), where("id_number", "==", idNumber));
+      const guestQuerySnap = await getDocs(gQuery);
+
       await runTransaction(db, async (transaction) => {
-        // Upsert guest
-        const gQuery = query(collection(db, "guests"), where("id_number", "==", idNumber));
-        const guestQuerySnap = await getDocs(gQuery);
-        
         let guestRef;
         if (!guestQuerySnap.empty) {
           guestRef = guestQuerySnap.docs[0].ref;
@@ -707,6 +707,36 @@ async function startServer() {
       res.status(500).json({ error: error.message || "Gagal memperbarui status pembayaran" });
     }
   });
+  
+  app.post("/api/reservations/:id/cancel", isAuthenticated, isAdmin, async (req, res) => {
+    const { id } = req.params;
+    const now = new Date();
+    const wibOffset = 7 * 60 * 60 * 1000;
+    const hotelToday = new Date(now.getTime() + wibOffset).toISOString().split('T')[0];
+
+    try {
+      await runTransaction(db, async (transaction) => {
+        const resRef = doc(db, "reservations", id);
+        const resSnap = await transaction.get(resRef);
+        if (!resSnap.exists()) throw new Error("Reservasi tidak ditemukan");
+        
+        const data = resSnap.data();
+        
+        // 1. Update reservation status
+        transaction.update(resRef, { reservation_status: 'CANCELLED' });
+        
+        // 2. If it's active today, reset room status
+        if (data.check_in <= hotelToday && data.check_out >= hotelToday) {
+          const roomRef = doc(db, "rooms", data.room_number);
+          transaction.update(roomRef, { current_status: 'AVAILABLE' });
+        }
+      });
+      res.json({ success: true });
+    } catch (error: any) {
+      console.error(error);
+      res.status(500).json({ error: error.message || "Gagal membatalkan reservasi" });
+    }
+  });
 
   app.get("/api/reservations/:id/transactions", isAuthenticated, async (req, res) => {
     const { id } = req.params;
@@ -737,29 +767,50 @@ async function startServer() {
     console.log(`[STATUS UPDATE] Room: ${id}, New Status: ${status}, Date: ${targetDate}`);
 
     try {
+      // 1. Pre-fetch data outside transaction
+      let existingGuestId = null;
+      if (status === 'CHECKED-IN' && walkInGuest) {
+        const gQuery = query(collection(db, "guests"), where("id_number", "==", walkInGuest.idNumber));
+        const guestSnapshot = await getDocs(gQuery);
+        if (!guestSnapshot.empty) {
+          existingGuestId = guestSnapshot.docs[0].id;
+        }
+      }
+
+      // Fetch overlapping reservation if not a simple status change
+      const rQuery = query(
+        collection(db, "reservations"),
+        where("room_number", "==", id),
+        where("check_in", "<=", targetDate),
+        where("check_out", ">=", targetDate)
+      );
+      const resSnapshot = await getDocs(rQuery);
+
       await runTransaction(db, async (transaction) => {
+        const roomRef = doc(db, "rooms", id);
         const operationalStatus = status === 'CANCELLED' ? 'AVAILABLE' : status;
-        transaction.update(doc(db, "rooms", id), { current_status: operationalStatus });
         
+        // TRANSACTIONAL READS
+        const roomSnap = await transaction.get(roomRef);
+        const roomData = roomSnap.data();
+        let typeData: any = null;
+        if (status === 'CHECKED-IN' && walkInGuest) {
+          const typeRef = doc(db, "room_types", roomData?.type_id || "unknown");
+          const typeSnap = await transaction.get(typeRef);
+          typeData = typeSnap.data();
+        }
+
+        // TRANSACTIONAL WRITES
         if (status === 'CHECKED-IN' && walkInGuest) {
           const { name, phoneNumber, idNumber, paymentStatus, paymentAmount, paymentMethod } = walkInGuest;
-          
-          // Get room price for walk-in
-          const roomSnap = await transaction.get(doc(db, "rooms", id));
-          const roomData = roomSnap.data();
-          const typeSnap = await transaction.get(doc(db, "room_types", roomData?.type_id));
-          const typeData = typeSnap.data();
           const basePrice = typeData?.base_price || 0;
 
-          const gQuery = query(collection(db, "guests"), where("id_number", "==", idNumber));
-          const guestSnapshot = await getDocs(gQuery);
+          let guestId = existingGuestId;
+          const guestRef = existingGuestId ? doc(db, "guests", existingGuestId) : doc(collection(db, "guests"));
           
-          let guestId;
-          if (!guestSnapshot.empty) {
-            guestId = guestSnapshot.docs[0].id;
-            transaction.update(guestSnapshot.docs[0].ref, { name, phone_number: phoneNumber });
+          if (existingGuestId) {
+            transaction.update(guestRef, { name, phone_number: phoneNumber });
           } else {
-            const guestRef = doc(collection(db, "guests"));
             transaction.set(guestRef, { name, id_number: idNumber, phone_number: phoneNumber });
             guestId = guestRef.id;
           }
@@ -796,33 +847,27 @@ async function startServer() {
             });
           }
         } else {
-           // Resolve reservation update for existing bookings
-           let priorityStatus: string | null = null;
-           if (status === 'CHECKED-IN') priorityStatus = 'BOOKED';
-           if (status === 'CHECKED-OUT') priorityStatus = 'CHECKED-IN';
-           
-           const rQuery = query(
-             collection(db, "reservations"),
-             where("room_number", "==", id),
-             where("check_in", "<=", targetDate),
-             where("check_out", ">=", targetDate)
-           );
-           
-           const resSnapshot = await getDocs(rQuery);
+          // Resolve reservation update for existing bookings
+          let priorityStatus: string | null = null;
+          if (status === 'CHECKED-IN') priorityStatus = 'BOOKED';
+          if (status === 'CHECKED-OUT') priorityStatus = 'CHECKED-IN';
+          
+          let docToUpdate;
+          if (priorityStatus) {
+            docToUpdate = resSnapshot.docs.find(d => d.data().reservation_status === priorityStatus);
+          }
+          
+          if (!docToUpdate) {
+            docToUpdate = resSnapshot.docs.find(d => d.data().reservation_status !== 'CANCELLED');
+          }
 
-           let docToUpdate;
-           if (priorityStatus) {
-              docToUpdate = resSnapshot.docs.find(d => d.data().reservation_status === priorityStatus);
-           }
-           
-           if (!docToUpdate) {
-             docToUpdate = resSnapshot.docs.find(d => d.data().reservation_status !== 'CANCELLED');
-           }
-
-           if (docToUpdate) {
-             transaction.update(docToUpdate.ref, { reservation_status: status });
-           }
+          if (docToUpdate) {
+            transaction.update(docToUpdate.ref, { reservation_status: status });
+          }
         }
+
+        // WRITES: Final Room Status Update
+        transaction.update(roomRef, { current_status: operationalStatus });
       });
       
       res.json({ success: true, updated: true });

@@ -21,11 +21,19 @@ import {
 } from "lucide-react";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import { fetchReservations, updatePaymentStatus, fetchRooms } from "../services/dataService";
+import { fetchReservations, updatePaymentStatus, fetchRooms, cancelReservation } from "../services/dataService";
 import { Reservation, Room } from "../types";
 import { cn } from "../lib/utils";
 
-export default function PaymentOverview({ initialSearch = "", onSearchClear }: { initialSearch?: string, onSearchClear?: () => void }) {
+export default function PaymentOverview({ 
+  initialSearch = "", 
+  onSearchClear,
+  accessMode 
+}: { 
+  initialSearch?: string, 
+  onSearchClear?: () => void,
+  accessMode?: "not-selected" | "guest" | "authorized"
+}) {
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
   const [loading, setLoading] = useState(true);
@@ -68,6 +76,21 @@ export default function PaymentOverview({ initialSearch = "", onSearchClear }: {
       })
       .finally(() => setLoading(false));
   };
+  
+  const handleCancelReservation = async (res: Reservation) => {
+    if (!window.confirm(`Apakah Anda yakin ingin membatalkan seluruh booking untuk ${res.guest_name}? Kamar ${res.room_number} akan tersedia kembali.`)) return;
+    
+    setLoading(true);
+    try {
+      await cancelReservation(res.id);
+      setSelectedRes(null);
+      loadData();
+    } catch (error: any) {
+      alert(`Gagal membatalkan reservasi: ${error.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   useEffect(() => {
     loadData();
@@ -103,11 +126,12 @@ export default function PaymentOverview({ initialSearch = "", onSearchClear }: {
     const date = new Date().toLocaleDateString('id-ID');
     
     // Header
-    const logo = '/logo.png';
+    // Using a 1x1 transparent PNG base64 as fallback for the missing/broken logo.png
+    const logoPlaceholder = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
     try {
-      doc.addImage(logo, 'PNG', 75, 5, 60, 60);
+      doc.addImage(logoPlaceholder, 'PNG', 75, 5, 60, 60);
     } catch(e) {
-      console.error("Could not load logo:", e);
+      console.error("Could not load logo placeholder:", e);
     }
     doc.setFontSize(22);
     doc.setTextColor(26, 28, 28);
@@ -599,6 +623,17 @@ export default function PaymentOverview({ initialSearch = "", onSearchClear }: {
                   <Download size={20} />
                   <span className="text-[8px] font-black uppercase tracking-tighter mt-1">Struk</span>
                 </button>
+
+                {accessMode === 'authorized' && (
+                  <button 
+                    onClick={() => handleCancelReservation(res)}
+                    className="flex-1 md:w-14 md:h-14 md:flex-none bg-error/5 rounded-2xl flex flex-col items-center justify-center text-error hover:bg-error hover:text-white transition-all active:scale-90 border border-error/10"
+                    title="Batalkan Booking"
+                  >
+                    <X size={20} />
+                    <span className="text-[8px] font-black uppercase tracking-tighter mt-1">Hapus</span>
+                  </button>
+                )}
               </div>
             </div>
           </motion.div>
@@ -864,6 +899,14 @@ export default function PaymentOverview({ initialSearch = "", onSearchClear }: {
 
               {/* Modal Footer */}
               <div className="p-8 pt-0 bg-white">
+                {accessMode === 'authorized' && (
+                  <button 
+                    onClick={() => handleCancelReservation(selectedRes)}
+                    className="w-full py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest text-error hover:bg-error/5 transition-all border border-dashed border-error/20 flex items-center justify-center gap-2 mb-4"
+                  >
+                    <X size={14} /> Batalkan Seluruh Booking Ini
+                  </button>
+                )}
                 <div className="flex gap-4">
                   <button 
                     onClick={() => generateInvoicePDF(selectedRes)}

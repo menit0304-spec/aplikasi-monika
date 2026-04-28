@@ -213,7 +213,7 @@ export default function Dashboard({
                   {room.paymentStatus && (room.status !== "AVAILABLE" || room.hasPendingCheckOut) && (
                     <div className={cn(
                       "absolute top-2 right-2 px-2 py-0.5 rounded-full text-[7px] font-black uppercase tracking-widest shadow-sm ring-1 ring-white/20 z-10",
-                      room.paymentStatus === "Lunas" ? "bg-emerald-600/90" : "bg-red-600/90 animate-pulse"
+                      (room.paymentStatus === "Lunas" || room.paymentStatus === "Lunas Online") ? "bg-emerald-600/90" : "bg-red-600/90 animate-pulse"
                     )}>
                       {room.paymentStatus}
                     </div>

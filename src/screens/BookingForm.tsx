@@ -28,10 +28,12 @@ function InputGroup({ label, placeholder, value, onChange, type = "text" }: { la
 
 export default function BookingForm({ 
   initialRoomNumber = "", 
-  initialRoomType = "" 
+  initialRoomType = "",
+  accessMode 
 }: { 
   initialRoomNumber?: string, 
-  initialRoomType?: string 
+  initialRoomType?: string,
+  accessMode?: "not-selected" | "guest" | "authorized"
 }) {
   const [roomTypes, setRoomTypes] = useState<any[]>([]);
   const [rooms, setRooms] = useState<any[]>([]);
@@ -172,6 +174,15 @@ export default function BookingForm({
     doc.text(`Check-in: ${bookingDetails.checkIn}`, 20, 70);
     doc.text(`Check-out: ${bookingDetails.checkOut}`, 20, 80);
     
+    // Multi-room summary
+    const expiryDate = new Date(Date.now() + 24 * 60 * 60 * 1000).toLocaleString('id-ID', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+
     // Rooms table
     autoTable(doc, {
         startY: 90,
@@ -182,13 +193,31 @@ export default function BookingForm({
     // Terms
     doc.setFontSize(10);
     doc.setTextColor(255, 0, 0); // Red for warning
-    doc.text("PERHATIAN:", 20, doc.lastAutoTable.finalY + 15);
-    doc.text("Max pembayaran DP 2x24 jam.", 20, doc.lastAutoTable.finalY + 20);
-    doc.text("Apabila tidak ada DP atau pelunasan dalam waktu tersebut, booking dianggap batal secara otomatis.", 20, doc.lastAutoTable.finalY + 25);
+    doc.text("PERHATIAN:", 20, (doc as any).lastAutoTable.finalY + 15);
+    doc.text(`Batas pembayaran DP/Lunas: ${expiryDate}`, 20, (doc as any).lastAutoTable.finalY + 20);
+    doc.text("Max pembayaran 1x24 jam.", 20, (doc as any).lastAutoTable.finalY + 25);
+    doc.text("Apabila tidak ada DP atau pelunasan dalam waktu tersebut, booking dianggap batal secara otomatis.", 20, (doc as any).lastAutoTable.finalY + 30);
     
+    // Payment Details
+    doc.setTextColor(0, 0, 0); // Reset to black
+    doc.setFont("helvetica", "bold");
+    doc.text("INFORMASI PEMBAYARAN:", 20, (doc as any).lastAutoTable.finalY + 42);
+    doc.setFont("helvetica", "normal");
+    doc.text("Bank BCA: 1690232363", 20, (doc as any).lastAutoTable.finalY + 48);
+    doc.text("A/N: Dewi Yuni Widyantari", 20, (doc as any).lastAutoTable.finalY + 54);
+
+    // Check-in Terms (Ketentuan Check-in)
+    doc.setFont("helvetica", "bold");
+    doc.text("KETENTUAN CHECK-IN:", 20, (doc as any).lastAutoTable.finalY + 65);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(9);
+    doc.text("1. Wajib menunjukkan Kode Booking dan Kartu Identitas (KTP/Passport) asli.", 20, (doc as any).lastAutoTable.finalY + 72);
+    doc.text("2. Waktu check-in standard adalah pukul 14:00 WIB.", 20, (doc as any).lastAutoTable.finalY + 78);
+    doc.text("3. Hubungi kami jika Anda berencana check-in di luar jam standard.", 20, (doc as any).lastAutoTable.finalY + 84);
+
     // QR Code
     if (qrCode) {
-        doc.addImage(qrCode, 'PNG', 80, doc.lastAutoTable.finalY + 40, 50, 50);
+        doc.addImage(qrCode, 'PNG', 80, (doc as any).lastAutoTable.finalY + 95, 50, 50);
     }
     
     doc.save(`Booking_${bookingDetails.batchId}.pdf`);
@@ -206,7 +235,21 @@ export default function BookingForm({
         </div>
         <h2 className="text-3xl font-headline font-extrabold mb-4">Booking Berhasil!</h2>
         <p className="text-on-surface-variant mb-4 text-sm">Kode Booking: <span className="font-bold text-lg">{bookingDetails.batchId}</span></p>
-        <p className="text-error text-xs mb-6 font-bold">INFO: Max pembayaran DP 2x24 jam. Jika lewat, booking batal otomatis.</p>
+        <div className="bg-error/10 p-4 rounded-2xl mb-6">
+          <p className="text-error text-xs font-bold uppercase tracking-widest mb-1">Batas Waktu Pembayaran (1x24 Jam)</p>
+          <p className="text-error font-black text-lg">
+            {new Date(Date.now() + 24 * 60 * 60 * 1000).toLocaleString('id-ID', {
+              day: 'numeric',
+              month: 'long',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit'
+            })}
+          </p>
+          <p className="text-error/70 text-[10px] mt-1 font-medium italic">
+            Booking batal otomatis jika tidak ada pembayaran DP/Lunas sebelum waktu di atas.
+          </p>
+        </div>
         
         {qrCode && (
           <div className="mb-8 flex justify-center">
@@ -214,12 +257,32 @@ export default function BookingForm({
           </div>
         )}
         
-        <div className="text-left text-sm space-y-2 mb-10 bg-surface-container-low p-6 rounded-2xl">
+        <div className="bg-primary/5 p-6 rounded-2xl mb-6 border border-primary/10 text-left">
+          <p className="text-[10px] font-black uppercase tracking-widest text-primary mb-3">Informasi Pembayaran</p>
+          <div className="space-y-1">
+            <p className="text-sm font-bold text-on-surface">Bank BCA</p>
+            <p className="text-xl font-headline font-black text-primary tracking-tight">1690232363</p>
+            <p className="text-xs font-bold text-on-surface-variant">a/n Dewi Yuni Widyantari</p>
+          </div>
+        </div>
+
+        <div className="text-left text-sm space-y-2 mb-6 bg-surface-container-low p-6 rounded-2xl">
           <p><strong>Nama:</strong> {bookingDetails.name}</p>
           <p><strong>No HP:</strong> {bookingDetails.phoneNumber}</p>
           <p><strong>Check-in:</strong> {bookingDetails.checkIn}</p>
           <p><strong>Check-out:</strong> {bookingDetails.checkOut}</p>
           <p><strong>Kamar:</strong> {bookingDetails.selectedRooms.map((r:any) => r.roomNumber).join(', ')}</p>
+        </div>
+
+        <div className="text-left text-xs bg-secondary/5 p-6 rounded-2xl mb-10 border border-secondary/10">
+          <p className="font-bold text-secondary uppercase tracking-widest mb-3 flex items-center gap-2">
+            <Info size={14} /> Ketentuan Check-in
+          </p>
+          <ul className="space-y-2 text-on-surface/70 list-disc pl-4 font-medium">
+            <li>Siapkan <strong>Kode Booking</strong> & <strong>ID Asli</strong> (KTP/Passport).</li>
+            <li>Standard check-in mulai pukul <strong>14:00 WIB</strong>.</li>
+            <li>Konfirmasi ulang jika berencana check-in lewat jam operasional.</li>
+          </ul>
         </div>
 
         <button 

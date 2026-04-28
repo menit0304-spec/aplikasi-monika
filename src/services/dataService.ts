@@ -73,6 +73,12 @@ export async function createReservation(data: any) {
   });
 }
 
+export async function cancelReservation(id: string | number) {
+  return apiFetch(`/api/reservations/${id}/cancel`, {
+    method: "POST"
+  });
+}
+
 export async function updateRoomStatus(roomId: string, status: string, date?: string, walkInGuest?: { 
   name: string, 
   phoneNumber: string, 

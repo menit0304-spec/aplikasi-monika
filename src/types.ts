@@ -11,7 +11,7 @@ export interface Room {
   guestName?: string | null;
   guestId?: number | null;
   phoneNumber?: string | null;
-  paymentStatus?: "Lunas" | "Belum Lunas";
+  paymentStatus?: "Lunas" | "Belum Lunas" | "Lunas Online";
   imageUrl?: string;
   hasPendingCheckOut?: boolean;
 }
@@ -27,7 +27,7 @@ export interface Guest {
   roomNumber: string;
   status: RoomStatus;
   totalPayment?: number;
-  paymentStatus?: "Lunas" | "Belum Lunas";
+  paymentStatus?: "Lunas" | "Belum Lunas" | "Lunas Online";
   nights?: number;
   imageUrl?: string;
 }
@@ -48,7 +48,7 @@ export interface Reservation {
   down_payment?: number;
   discount_type?: string;
   discount_amount?: number;
-  payment_status: "Lunas" | "Belum Lunas";
+  payment_status: "Lunas" | "Belum Lunas" | "Lunas Online";
   payment_method?: "Tunai" | "Transfer Bank" | string;
   reservation_status: "BOOKED" | "CHECKED-IN" | "CHECKED-OUT" | "CANCELLED";
 }

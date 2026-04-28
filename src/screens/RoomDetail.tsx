@@ -254,25 +254,7 @@ export default function RoomDetail({
           {room.paymentStatus && (room.status !== "AVAILABLE" || room.hasPendingCheckOut) && (
             <div className={cn(
               "mt-4 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-[0.2em] shadow-sm ring-1 ring-white/20",
-              room.paymentStatus === "Lunas" ? "bg-emerald-600/60" : "bg-red-600/60 animate-pulse"
-            )}>
-              {room.paymentStatus}
-            </div>
-          )}
-
-          {room.paymentStatus && (room.status !== "AVAILABLE" || room.hasPendingCheckOut) && (
-            <div className={cn(
-              "mt-4 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-[0.2em] shadow-sm ring-1 ring-white/20",
-              room.paymentStatus === "Lunas" ? "bg-emerald-600/60" : "bg-red-600/60 animate-pulse"
-            )}>
-              {room.paymentStatus}
-            </div>
-          )}
-
-          {room.paymentStatus && (room.status !== "AVAILABLE" || room.hasPendingCheckOut) && (
-            <div className={cn(
-              "mt-4 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-[0.2em] shadow-sm ring-1 ring-white/20",
-              room.paymentStatus === "Lunas" ? "bg-emerald-600/60" : "bg-red-600/60 animate-pulse"
+              (room.paymentStatus === "Lunas" || room.paymentStatus === "Lunas Online") ? "bg-emerald-600/60" : "bg-red-600/60 animate-pulse"
             )}>
               {room.paymentStatus}
             </div>
@@ -347,12 +329,12 @@ export default function RoomDetail({
                 <CreditCard size={12} /> Informasi Pembayaran
               </label>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="flex bg-white rounded-2xl p-1.5 shadow-sm">
+                <div className="flex bg-white rounded-2xl p-1.5 shadow-sm gap-1">
                   <button 
                     onClick={() => setWalkInGuest({ ...walkInGuest, paymentStatus: "Lunas" })}
                     className={cn(
                       "flex-1 py-3 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all",
-                      walkInGuest.paymentStatus === "Lunas" ? "bg-primary text-white shadow-md" : "text-outline/60 hover:bg-primary/5"
+                      walkInGuest.paymentStatus === "Lunas" ? "bg-emerald-500 text-white shadow-md" : "text-outline/60 hover:bg-emerald-500/5 text-[8px]"
                     )}
                   >
                     Lunas
@@ -361,10 +343,19 @@ export default function RoomDetail({
                     onClick={() => setWalkInGuest({ ...walkInGuest, paymentStatus: "Belum Lunas" })}
                     className={cn(
                       "flex-1 py-3 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all",
-                      walkInGuest.paymentStatus === "Belum Lunas" ? "bg-amber-500 text-white shadow-md" : "text-outline/60 hover:bg-amber-500/5"
+                      walkInGuest.paymentStatus === "Belum Lunas" ? "bg-amber-500 text-white shadow-md" : "text-outline/60 hover:bg-amber-500/5 text-[8px]"
                     )}
                   >
-                    DP (Uang Muka)
+                    DP
+                  </button>
+                  <button 
+                    onClick={() => setWalkInGuest({ ...walkInGuest, paymentStatus: "Lunas Online" })}
+                    className={cn(
+                      "flex-1 py-3 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all border border-dashed border-primary/20",
+                      walkInGuest.paymentStatus === "Lunas Online" ? "bg-primary text-white shadow-md" : "text-primary/60 hover:bg-primary/5 text-[8px]"
+                    )}
+                  >
+                    Lunas Online
                   </button>
                 </div>
                 <div className="relative">
