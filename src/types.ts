@@ -33,10 +33,13 @@ export interface Guest {
 }
 
 export interface Reservation {
-  id: number;
-  guest_id: number;
+  id: string;
+  guest_id: string;
   guest_name?: string;
+  guest_phone?: string;
+  guest_id_number?: string;
   room_number: string;
+  room_type?: string;
   check_in: string;
   check_out: string;
   total_nights: number;
@@ -58,4 +61,4 @@ export interface User {
   role?: string;
 }
 
-export type View = "home" | "booking" | "search" | "units" | "guests" | "room-detail" | "login" | "staff";
+export type View = "home" | "booking" | "search" | "units" | "guests" | "room-detail" | "login" | "staff" | "payment";

@@ -1,0 +1,96 @@
+{
+  "entities": {
+    "Guest": {
+      "title": "Guest",
+      "description": "Guest personal and identification information",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "id_number": { "type": "string" },
+        "phone_number": { "type": "string" },
+        "email": { "type": "string" },
+        "address": { "type": "string" }
+      },
+      "required": ["name"]
+    },
+    "Room": {
+      "title": "Room",
+      "description": "A specific hotel room unit",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type_id": { "type": "string" },
+        "current_status": { "type": "string", "enum": ["AVAILABLE", "BOOKED", "CHECKED_IN", "CLEANING", "REPAIR", "OUT-OF-ORDER"] },
+        "last_cleaned": { "type": "string", "format": "date-time" }
+      },
+      "required": ["id", "type_id"]
+    },
+    "RoomType": {
+      "title": "Room Type",
+      "description": "Category of room with price and features",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "base_price": { "type": "number" },
+        "description": { "type": "string" },
+        "capacity": { "type": "number" },
+        "features": { "type": "array" }
+      }
+    },
+    "Reservation": {
+      "title": "Reservation",
+      "description": "Booking record for a guest and room",
+      "type": "object",
+      "properties": {
+        "guest_id": { "type": "string" },
+        "room_number": { "type": "string" },
+        "check_in": { "type": "string", "format": "date" },
+        "check_out": { "type": "string", "format": "date" },
+        "total_nights": { "type": "number" },
+        "total_payment": { "type": "number" },
+        "amount_paid": { "type": "number" },
+        "down_payment": { "type": "number" },
+        "payment_status": { "type": "string", "enum": ["Lunas", "Belum Lunas"] },
+        "reservation_status": { "type": "string", "enum": ["BOOKED", "CHECKED_IN", "CHECKED_OUT", "CANCELLED"] },
+        "payment_method": { "type": "string" },
+        "batch_id": { "type": "string" },
+        "created_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "Transaction": {
+      "title": "Transaction",
+      "description": "Individual payment record linked to a reservation",
+      "type": "object",
+      "properties": {
+        "reservation_id": { "type": "string" },
+        "amount": { "type": "number" },
+        "payment_method": { "type": "string" },
+        "type": { "type": "string", "enum": ["DP", "Pelunasan", "Tambahan"] },
+        "timestamp": { "type": "string", "format": "date-time" },
+        "staff_id": { "type": "string" }
+      }
+    }
+  },
+  "firestore": {
+    "/guests/{guestId}": {
+      "schema": "Guest",
+      "description": "Storage for guest master data"
+    },
+    "/rooms/{roomId}": {
+      "schema": "Room",
+      "description": "Storage for room status and metadata"
+    },
+    "/room_types/{typeId}": {
+      "schema": "RoomType",
+      "description": "Storage for room pricing and descriptions"
+    },
+    "/reservations/{resId}": {
+      "schema": "Reservation",
+      "description": "Booking records"
+    },
+    "/transactions/{transId}": {
+      "schema": "Transaction",
+      "description": "Detailed payment transaction logs"
+    }
+  }
+}

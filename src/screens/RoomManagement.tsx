@@ -12,7 +12,8 @@ export default function RoomManagement() {
   const [activeTab, setActiveTab] = useState<"list" | "rate">("list");
   const [editingType, setEditingType] = useState<any | null>(null);
   const [isAddingType, setIsAddingType] = useState(false);
-  const [isAddingUnit, setIsAddingUnit] = useState<{ typeId: number, typeName: string } | null>(null);
+  const [isAddingUnit, setIsAddingUnit] = useState<{ typeId: any, typeName: string } | null>(null);
+  const [isBulkAdding, setIsBulkAdding] = useState(false);
   
   const [newTypeData, setNewTypeData] = useState({
     name: "",
@@ -26,6 +27,14 @@ export default function RoomManagement() {
   const [newUnitData, setNewUnitData] = useState({
     roomNumber: "",
     floor: 1
+  });
+
+  const [bulkData, setBulkData] = useState({
+    typeId: "",
+    floor: 1,
+    prefix: "",
+    startNum: 1,
+    count: 5
   });
 
   const loadData = () => {
@@ -130,8 +139,35 @@ export default function RoomManagement() {
       loadData();
     } catch (error: any) {
       if (error.status !== 401 && error.message !== "Unauthorized") {
-        alert(error.message || "Gagal menambah unit kamar");
+        alert(error.message || "Gagal menambah unit kamar. Pastikan nomor unit belum digunakan.");
       }
+    }
+  };
+
+  const handleBulkAdd = async () => {
+    if (!bulkData.typeId) return;
+    setLoading(true);
+    try {
+      for (let i = 0; i < bulkData.count; i++) {
+        const num = (bulkData.startNum + i).toString().padStart(2, '0');
+        const roomNumber = `${bulkData.prefix}${num}`;
+        try {
+          await addRoom({
+            roomNumber,
+            typeId: Number(bulkData.typeId),
+            floor: Number(bulkData.floor)
+          });
+        } catch (e) {
+          console.warn(`Gagal menambah ${roomNumber}, mungkin sudah ada.`);
+        }
+      }
+      setIsBulkAdding(false);
+      loadData();
+    } catch (error: any) {
+       alert("Selesai diproses dengan beberapa kemungkinan error skip.");
+       loadData();
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -494,6 +530,7 @@ export default function RoomManagement() {
                     placeholder="Contoh: 301"
                     autoFocus
                   />
+                  <p className="text-[9px] text-on-surface-variant italic leading-tight">Gunakan nomor unik (misal: 101, 205, A1).</p>
                 </div>
 
                 <div className="space-y-2">
@@ -516,14 +553,126 @@ export default function RoomManagement() {
             </motion.div>
           </div>
         )}
+
+        {isBulkAdding && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-6">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              className="absolute inset-0 bg-on-surface/40 backdrop-blur-sm"
+              onClick={() => setIsBulkAdding(false)}
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.9, opacity: 0 }}
+              className="bg-white rounded-[3rem] p-10 w-full max-w-md relative z-10 shadow-2xl border border-outline-variant/10"
+            >
+              <div className="flex justify-between items-center mb-6">
+                <h3 className="text-2xl font-headline font-extrabold tracking-tight">Massal Room Add</h3>
+                <button 
+                  onClick={() => setIsBulkAdding(false)}
+                  className="p-2 hover:bg-surface-container rounded-full"
+                >
+                  <X size={24} />
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <label className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Pilih Tipe Kamar</label>
+                  <select 
+                    value={bulkData.typeId}
+                    onChange={e => setBulkData({ ...bulkData, typeId: e.target.value })}
+                    className="w-full bg-surface-container-low border-none rounded-2xl p-5 focus:ring-4 focus:ring-primary/10 transition-all font-bold text-on-surface appearance-none"
+                  >
+                    <option value="">-- Pilih Tipe --</option>
+                    {rawRoomTypes.map(t => (
+                      <option key={t.id} value={t.id}>{t.name}</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Lantai</label>
+                    <input 
+                      type="number"
+                      value={bulkData.floor}
+                      onChange={e => setBulkData({ ...bulkData, floor: Number(e.target.value) })}
+                      className="w-full bg-surface-container-low border-none rounded-2xl p-5 focus:ring-4 focus:ring-primary/10 transition-all font-bold text-on-surface"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Prefix (Opsional)</label>
+                    <input 
+                      value={bulkData.prefix}
+                      onChange={e => setBulkData({ ...bulkData, prefix: e.target.value })}
+                      placeholder="e.g. 10"
+                      className="w-full bg-surface-container-low border-none rounded-2xl p-5 focus:ring-4 focus:ring-primary/10 transition-all font-bold text-on-surface"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Start Number</label>
+                    <input 
+                      type="number"
+                      value={bulkData.startNum}
+                      onChange={e => setBulkData({ ...bulkData, startNum: Number(e.target.value) })}
+                      className="w-full bg-surface-container-low border-none rounded-2xl p-5 focus:ring-4 focus:ring-primary/10 transition-all font-bold text-on-surface"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <label className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">Jumlah Unit</label>
+                    <input 
+                      type="number"
+                      value={bulkData.count}
+                      onChange={e => setBulkData({ ...bulkData, count: Number(e.target.value) })}
+                      className="w-full bg-surface-container-low border-none rounded-2xl p-5 focus:ring-4 focus:ring-primary/10 transition-all font-bold text-on-surface"
+                    />
+                  </div>
+                </div>
+
+                <div className="p-4 bg-primary/5 rounded-2xl border border-primary/10">
+                   <p className="text-[10px] font-black uppercase text-primary mb-1">Preview Room Numbers:</p>
+                   <p className="text-sm font-bold text-on-surface opacity-60 italic">
+                     {bulkData.prefix || '?'}{bulkData.startNum.toString().padStart(2, '0')}, ... , 
+                     {bulkData.prefix || '?'}{(bulkData.startNum + bulkData.count - 1).toString().padStart(2, '0')}
+                   </p>
+                </div>
+
+                <button 
+                  onClick={handleBulkAdd}
+                  className="w-full bg-primary text-white py-5 rounded-2xl font-headline font-black text-xl shadow-xl shadow-primary/20 flex items-center justify-center gap-3 hover:scale-[1.02] active:scale-95 transition-all mt-2"
+                >
+                  <Plus size={24} /> Generate & Simpan
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
       </AnimatePresence>
 
       {/* Hero Section */}
-      <div className="space-y-4">
-        <h1 className="text-5xl font-extrabold tracking-tighter text-on-surface font-headline leading-tight">Room Management</h1>
-        <p className="text-on-surface-variant max-w-2xl text-lg leading-relaxed opacity-80">
-          Konfigurasi properti Hotel Monika Yogyakarta. Atur harga, deskripsi, dan pantau ketersediaan unit.
-        </p>
+      <div className="flex items-center justify-between">
+        <div className="space-y-4">
+          <h1 className="text-5xl font-extrabold tracking-tighter text-on-surface font-headline leading-tight">Room Management</h1>
+          <p className="text-on-surface-variant max-w-2xl text-lg leading-relaxed opacity-80">
+            Konfigurasi properti Hotel Monika Yogyakarta. Atur harga, deskripsi, dan pantau ketersediaan unit.
+          </p>
+        </div>
+        <div className="flex flex-col gap-3">
+          <button 
+            onClick={() => setIsBulkAdding(true)}
+            className="bg-surface-container-high text-primary px-8 py-4 rounded-3xl font-headline font-black flex items-center gap-3 hover:bg-primary hover:text-white transition-all shadow-sm"
+          >
+            <Layers size={20} />
+            Massal Room Add
+          </button>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
@@ -612,7 +761,7 @@ export default function RoomManagement() {
             <div className="relative z-10 space-y-6">
               <div>
                 <p className="text-white/60 text-xs font-bold uppercase tracking-widest mb-1">Total Rooms</p>
-                <h3 className="text-7xl font-extrabold font-headline tracking-tighter">42</h3>
+                <h3 className="text-7xl font-extrabold font-headline tracking-tighter">{rooms.length}</h3>
               </div>
               <div className="flex items-center gap-3">
                 <span className="bg-white/20 backdrop-blur-md px-4 py-2 rounded-full font-bold text-sm border border-white/10 flex items-center gap-2">
@@ -625,12 +774,12 @@ export default function RoomManagement() {
           </div>
 
           <div className="bg-surface-container-high/40 p-10 rounded-[3rem] border border-outline-variant/15">
-            <h4 className="font-bold text-lg mb-8 text-on-surface font-headline uppercase tracking-widest opacity-60">Quick Actions</h4>
+            <h4 className="font-bold text-lg mb-8 text-on-surface font-headline uppercase tracking-widest opacity-60">Management Settings</h4>
             <div className="grid grid-cols-2 gap-4">
-              <QuickButton icon={<LayoutGrid />} label="Revenue Report" />
-              <QuickButton icon={<Wallet />} label="Availability" />
-              <QuickButton icon={<Smartphone />} label="Digital Key" />
-              <QuickButton icon={<Settings />} label="Settings" />
+              <QuickButton icon={<Plus />} label="Add Type" onClick={() => setIsAddingType(true)} />
+              <QuickButton icon={<Layers />} label="Bulk Add" onClick={() => setIsBulkAdding(true)} />
+              <QuickButton icon={<Trash2 />} label="Delete Logs" onClick={() => alert("Menu ini dalam tahap pengembangan.")} />
+              <QuickButton icon={<TrendingUp />} label="Rates UI" onClick={() => setActiveTab("rate")} />
             </div>
           </div>
         </div>
@@ -683,9 +832,12 @@ export default function RoomManagement() {
   );
 }
 
-function QuickButton({ icon, label }: { icon: React.ReactNode; label: string }) {
+function QuickButton({ icon, label, onClick }: { icon: React.ReactNode; label: string; onClick?: () => void }) {
   return (
-    <button className="bg-white p-6 rounded-[2rem] flex flex-col items-center gap-3 text-center hover:shadow-xl hover:-translate-y-1 transition-all group">
+    <button 
+      onClick={onClick}
+      className="bg-white p-6 rounded-[2rem] flex flex-col items-center gap-3 text-center hover:shadow-xl hover:-translate-y-1 transition-all group w-full"
+    >
       <div className="text-primary group-hover:scale-110 transition-transform duration-300">{icon}</div>
       <span className="text-[10px] font-bold text-on-surface uppercase tracking-widest text-wrap">{label}</span>
     </button>

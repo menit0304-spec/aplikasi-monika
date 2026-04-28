@@ -9,3 +9,15 @@ coverage/
 *.db-journal
 *.db-shm
 *.db-wal
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.db
+*.db-journal
+*.db-shm
+*.db-wal
+*.db
+*.db-journal
+*.db-shm
+*.db-wal

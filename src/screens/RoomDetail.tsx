@@ -23,18 +23,21 @@ import { Room } from "../types";
 import { cn } from "../lib/utils";
 
 export default function RoomDetail({ 
+  accessMode,
   room: initialRoom, 
   onBack, 
   onBooking,
   showActions, 
   selectedDate 
 }: { 
+  accessMode?: "not-selected" | "guest" | "authorized",
   room: Room | null, 
   onBack: () => void, 
   onBooking?: (room: Room) => void,
   showActions?: boolean, 
   selectedDate?: string 
 }) {
+  const isGuest = accessMode === 'guest';
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
   const [localRoomStatus, setLocalRoomStatus] = useState<string | null>(initialRoom?.status || null);
@@ -44,7 +47,10 @@ export default function RoomDetail({
   const [walkInGuest, setWalkInGuest] = useState({
     name: "",
     phoneNumber: "",
-    idNumber: ""
+    idNumber: "",
+    paymentStatus: "Belum Lunas",
+    paymentAmount: 0,
+    paymentMethod: "Tunai"
   });
 
   useEffect(() => {
@@ -79,6 +85,7 @@ export default function RoomDetail({
   }
 
   const handleUpdateStatus = async (newStatus: string) => {
+    if (isGuest) return;
     if (!room) return;
 
     // Check if manual check-in is needed
@@ -112,6 +119,7 @@ export default function RoomDetail({
   };
 
   const handleUpdateGuestData = async () => {
+    if (isGuest) return;
     if (!room?.guestId) return;
     setLoading(true);
     try {
@@ -194,28 +202,35 @@ export default function RoomDetail({
             <div className="flex flex-col">
               <span className="text-[10px] uppercase tracking-widest text-outline font-bold mb-1">Fasilitas</span>
               <div className="flex flex-wrap gap-4 mt-1 text-on-surface-variant">
-                {room.facilities && room.facilities.length > 0 ? (
-                  room.facilities.map((fac, i) => {
-                    const iconMap: Record<string, any> = {
-                      'Wifi': Wifi,
-                      'AC': Snowflake,
-                      'TV': Tv,
-                    };
-                    const Icon = iconMap[fac.trim()] || CheckCircle2;
-                    return (
-                      <div key={i} className="flex items-center gap-1.5 opacity-70">
-                        <Icon size={16} />
-                        <span className="text-xs font-bold uppercase tracking-tight">{fac}</span>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <div className="flex gap-4 text-outline">
-                    <Wifi size={18} />
-                    <Snowflake size={18} />
-                    <Tv size={18} />
-                  </div>
-                )}
+                {(() => {
+                  const facilities = Array.isArray(room.facilities) 
+                    ? room.facilities 
+                    : (typeof room.facilities === 'string' ? (room.facilities as string).split(',').map(f => f.trim()) : []);
+                  
+                  if (facilities.length > 0) {
+                    return facilities.map((fac, i) => {
+                      const iconMap: Record<string, any> = {
+                        'Wifi': Wifi,
+                        'AC': Snowflake,
+                        'TV': Tv,
+                      };
+                      const Icon = iconMap[fac] || CheckCircle2;
+                      return (
+                        <div key={i} className="flex items-center gap-1.5 opacity-70">
+                          <Icon size={16} />
+                          <span className="text-xs font-bold uppercase tracking-tight">{fac}</span>
+                        </div>
+                      );
+                    });
+                  }
+                  return (
+                    <div className="flex gap-4 text-outline">
+                      <Wifi size={18} />
+                      <Snowflake size={18} />
+                      <Tv size={18} />
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           </div>
@@ -235,6 +250,24 @@ export default function RoomDetail({
           <h4 className="text-3xl font-headline font-bold">
             {room.status === "AVAILABLE" && room.hasPendingCheckOut ? "READY (DUE OUT)" : room.status}
           </h4>
+
+          {room.paymentStatus && (room.status !== "AVAILABLE" || room.hasPendingCheckOut) && (
+            <div className={cn(
+              "mt-4 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-[0.2em] shadow-sm ring-1 ring-white/20",
+              room.paymentStatus === "Lunas" ? "bg-emerald-600/60" : "bg-red-600/60 animate-pulse"
+            )}>
+              {room.paymentStatus}
+            </div>
+          )}
+
+          {room.paymentStatus && (room.status !== "AVAILABLE" || room.hasPendingCheckOut) && (
+            <div className={cn(
+              "mt-4 px-4 py-1.5 rounded-full text-[10px] font-black uppercase tracking-[0.2em] shadow-sm ring-1 ring-white/20",
+              room.paymentStatus === "Lunas" ? "bg-emerald-600/60" : "bg-red-600/60 animate-pulse"
+            )}>
+              {room.paymentStatus}
+            </div>
+          )}
 
           {room.paymentStatus && (room.status !== "AVAILABLE" || room.hasPendingCheckOut) && (
             <div className={cn(
@@ -308,6 +341,60 @@ export default function RoomDetail({
                 placeholder="Masukkan NIK atau nomor identitas"
               />
             </div>
+
+            <div className="space-y-4 md:col-span-2 pt-4 border-t border-primary/10 mt-2">
+              <label className="text-[10px] font-black uppercase tracking-widest text-primary flex items-center gap-2">
+                <CreditCard size={12} /> Informasi Pembayaran
+              </label>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="flex bg-white rounded-2xl p-1.5 shadow-sm">
+                  <button 
+                    onClick={() => setWalkInGuest({ ...walkInGuest, paymentStatus: "Lunas" })}
+                    className={cn(
+                      "flex-1 py-3 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all",
+                      walkInGuest.paymentStatus === "Lunas" ? "bg-primary text-white shadow-md" : "text-outline/60 hover:bg-primary/5"
+                    )}
+                  >
+                    Lunas
+                  </button>
+                  <button 
+                    onClick={() => setWalkInGuest({ ...walkInGuest, paymentStatus: "Belum Lunas" })}
+                    className={cn(
+                      "flex-1 py-3 rounded-xl text-[10px] font-bold uppercase tracking-wider transition-all",
+                      walkInGuest.paymentStatus === "Belum Lunas" ? "bg-amber-500 text-white shadow-md" : "text-outline/60 hover:bg-amber-500/5"
+                    )}
+                  >
+                    DP (Uang Muka)
+                  </button>
+                </div>
+                <div className="relative">
+                  <div className="absolute left-5 top-1/2 -translate-y-1/2 text-outline/40 font-bold text-sm">Rp</div>
+                  <input 
+                    type="number"
+                    value={walkInGuest.paymentAmount || ""}
+                    onChange={e => setWalkInGuest({ ...walkInGuest, paymentAmount: parseInt(e.target.value) || 0 })}
+                    className="w-full bg-white border-none rounded-2xl p-5 pl-12 shadow-sm focus:ring-4 focus:ring-primary/10 transition-all font-bold text-on-surface"
+                    placeholder="Contoh: 100000"
+                  />
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {["Tunai", "Transfer", "Debit", "Qris"].map(method => (
+                  <button
+                    key={method}
+                    onClick={() => setWalkInGuest({ ...walkInGuest, paymentMethod: method })}
+                    className={cn(
+                      "px-4 py-2 rounded-full text-[10px] font-bold uppercase tracking-tighter border transition-all",
+                      walkInGuest.paymentMethod === method 
+                        ? "bg-primary text-white border-primary" 
+                        : "bg-white text-outline border-outline/10 hover:border-primary/30"
+                    )}
+                  >
+                    {method}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
 
           <div className="flex gap-4">
@@ -333,14 +420,14 @@ export default function RoomDetail({
         <div className="bg-surface-container p-10 rounded-[3rem]">
           <h4 className="text-[10px] font-bold uppercase tracking-[0.2em] text-on-surface-variant mb-8 text-center">Pilih Tindakan Selanjutnya</h4>
           <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-6">
-            <ActionButton 
+              <ActionButton 
               icon={<Calendar size={24} />} 
               label="Booking" 
               theme="bg-primary/10 text-primary" 
               hover="hover:bg-primary hover:text-white"
               active={room.status === "AVAILABLE"}
               onClick={() => onBooking && onBooking(room)}
-              disabled={loading}
+              disabled={loading || isGuest}
             />
             <ActionButton 
               icon={<LogIn size={24} />} 
@@ -349,7 +436,7 @@ export default function RoomDetail({
               hover="hover:bg-status-available hover:text-white"
               active={room.status === "BOOKED"}
               onClick={() => handleUpdateStatus("CHECKED-IN")}
-              disabled={loading}
+              disabled={loading || isGuest}
             />
             <ActionButton 
               icon={<CalendarX size={24} />} 
@@ -362,7 +449,7 @@ export default function RoomDetail({
                   handleUpdateStatus("CANCELLED");
                 }
               }}
-              disabled={loading || room.status !== "BOOKED"}
+              disabled={loading || room.status !== "BOOKED" || isGuest}
             />
             <ActionButton 
               icon={<Edit size={24} />} 
@@ -371,7 +458,7 @@ export default function RoomDetail({
               hover="hover:bg-blue-500 hover:text-white"
               active={false}
               onClick={openEditGuestForm}
-              disabled={loading || (!room.guestName && !room.hasPendingCheckOut)}
+              disabled={loading || (!room.guestName && !room.hasPendingCheckOut) || isGuest}
             />
             <ActionButton 
               icon={<LogOut size={24} />} 
@@ -380,7 +467,7 @@ export default function RoomDetail({
               hover="hover:bg-status-checked-in hover:text-white"
               active={room.status === "CHECKED-IN" || room.hasPendingCheckOut}
               onClick={() => handleUpdateStatus("CHECKED-OUT")}
-              disabled={loading || (room.status !== "CHECKED-IN" && !room.hasPendingCheckOut)}
+              disabled={loading || (room.status !== "CHECKED-IN" && !room.hasPendingCheckOut) || isGuest}
             />
             <ActionButton 
               icon={<X size={24} />} 
@@ -388,7 +475,7 @@ export default function RoomDetail({
               theme="bg-primary/10 text-primary" 
               hover="hover:bg-primary hover:text-white"
               onClick={() => handleUpdateStatus("AVAILABLE")}
-              disabled={loading}
+              disabled={loading || isGuest}
             />
           </div>
         </div>

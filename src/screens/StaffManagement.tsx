@@ -4,7 +4,8 @@ import { UserPlus, Trash2, Shield, User, Key, X, CheckCircle2 } from "lucide-rea
 import { fetchUsers, addUser, deleteUser } from "../services/dataService";
 import { User as UserType } from "../types";
 
-export default function StaffManagement() {
+export default function StaffManagement({ accessMode }: { accessMode?: string }) {
+  const isGuest = accessMode === 'guest';
   const [users, setUsers] = useState<UserType[]>([]);
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -39,6 +40,7 @@ export default function StaffManagement() {
 
   const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isGuest) return;
     try {
       await addUser(newUser);
       setIsAddModalOpen(false);
@@ -52,6 +54,7 @@ export default function StaffManagement() {
   };
 
   const handleDelete = async (id: number) => {
+    if (isGuest) return;
     if (confirm("Hapus user ini?")) {
       try {
         await deleteUser(id);
@@ -71,13 +74,15 @@ export default function StaffManagement() {
           <h2 className="text-4xl font-headline font-black text-on-surface tracking-tight">Staff Management</h2>
           <p className="text-on-surface-variant font-medium mt-1">Kelola akun staff dan admin hotel.</p>
         </div>
-        <button 
-          onClick={() => setIsAddModalOpen(true)}
-          className="bg-primary text-white p-6 rounded-[2rem] shadow-xl shadow-primary/20 hover:scale-105 active:scale-95 transition-all flex items-center gap-3"
-        >
-          <UserPlus size={24} />
-          <span className="font-headline font-black text-lg">Tambah Staff</span>
-        </button>
+        {!isGuest && (
+          <button 
+            onClick={() => setIsAddModalOpen(true)}
+            className="bg-primary text-white p-6 rounded-[2rem] shadow-xl shadow-primary/20 hover:scale-105 active:scale-95 transition-all flex items-center gap-3"
+          >
+            <UserPlus size={24} />
+            <span className="font-headline font-black text-lg">Tambah Staff</span>
+          </button>
+        )}
       </div>
 
       <div className="bg-white rounded-[3rem] shadow-xl overflow-hidden border border-outline-variant/5">
@@ -118,12 +123,14 @@ export default function StaffManagement() {
                     )}
                   </td>
                   <td className="px-8 py-6 text-right">
-                    <button 
-                      onClick={() => handleDelete(user.id)}
-                      className="p-3 text-outline hover:text-error hover:bg-error/5 rounded-2xl transition-all"
-                    >
-                      <Trash2 size={20} />
-                    </button>
+                    {!isGuest && (
+                      <button 
+                        onClick={() => handleDelete(user.id)}
+                        className="p-3 text-outline hover:text-error hover:bg-error/5 rounded-2xl transition-all"
+                      >
+                        <Trash2 size={20} />
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}

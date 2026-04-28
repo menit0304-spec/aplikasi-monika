@@ -39,6 +39,8 @@ export default function BookingForm({
     selectedRooms: [{ roomType: initialRoomType, roomNumber: initialRoomNumber }],
     checkIn: "",
     checkOut: "",
+    paymentMethod: "Tunai",
+    downPayment: 0
   });
   const [loading, setLoading] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -116,6 +118,8 @@ export default function BookingForm({
         checkOut: formData.checkOut,
         totalNights: nights,
         rooms: roomPayload,
+        paymentMethod: formData.paymentMethod,
+        downPayment: formData.downPayment,
         batchId: `B-${Date.now()}` // Generate batch id
       });
       setSuccess(true);
@@ -316,6 +320,33 @@ export default function BookingForm({
                     className="w-full bg-surface-container-low border-none rounded-2xl px-6 py-5 focus:ring-4 focus:ring-primary/10 focus:bg-white transition-all text-on-surface font-bold" 
                     type="date" 
                   />
+                </div>
+
+                <div className="group">
+                  <label className="block text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-3 pr-2 transition-colors group-focus-within:text-primary">Metode Pembayaran</label>
+                  <select 
+                    value={formData.paymentMethod}
+                    onChange={e => setFormData({ ...formData, paymentMethod: e.target.value })}
+                    className="w-full bg-surface-container-low border-none rounded-2xl px-6 py-5 focus:ring-4 focus:ring-primary/10 focus:bg-white transition-all text-on-surface font-bold appearance-none cursor-pointer"
+                  >
+                    <option value="Tunai">Tunai / Cash</option>
+                    <option value="Transfer Bank">Transfer Bank</option>
+                    <option value="Debit/QRIS">Debit / QRIS</option>
+                  </select>
+                </div>
+
+                <div className="group">
+                  <label className="block text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-3 pr-2 transition-colors group-focus-within:text-primary">Bayar DP (Opsional)</label>
+                  <div className="relative">
+                    <span className="absolute left-5 top-1/2 -translate-y-1/2 font-black text-outline/40">Rp</span>
+                    <input 
+                      value={formData.downPayment}
+                      onChange={e => setFormData({ ...formData, downPayment: parseInt(e.target.value) || 0 })}
+                      className="w-full bg-surface-container-low border-none rounded-2xl pl-12 pr-6 py-5 focus:ring-4 focus:ring-primary/10 focus:bg-white transition-all text-on-surface font-bold" 
+                      type="number" 
+                      placeholder="0"
+                    />
+                  </div>
                 </div>
               </div>
             </div>

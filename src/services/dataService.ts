@@ -16,7 +16,13 @@ async function apiFetch(url: string, options: RequestInit = {}) {
     throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
   }
 
-  return response.json();
+  const text = await response.text();
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    console.error("Failed to parse JSON response at " + url + ":", text.substring(0, 500));
+    throw new Error(`Invalid JSON response from server: ${text.substring(0, 100) || "(empty response)"}`);
+  }
 }
 
 export async function fetchRooms(date?: string) {
@@ -67,7 +73,14 @@ export async function createReservation(data: any) {
   });
 }
 
-export async function updateRoomStatus(roomId: string, status: string, date?: string, walkInGuest?: { name: string, phoneNumber: string, idNumber: string }) {
+export async function updateRoomStatus(roomId: string, status: string, date?: string, walkInGuest?: { 
+  name: string, 
+  phoneNumber: string, 
+  idNumber: string,
+  paymentStatus?: string,
+  paymentAmount?: number,
+  paymentMethod?: string
+}) {
   return apiFetch(`/api/rooms/${roomId}/status`, {
     method: "PATCH",
     headers: { "Content-Type": "application/json" },

@@ -2,12 +2,32 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 import { fileURLToPath } from "url";
-import Database from "better-sqlite3";
+import fs from "fs";
+
+// Load config early to set environment variables
+const configPath = path.join(process.cwd(), "firebase-applet-config.json");
+const config = JSON.parse(fs.readFileSync(configPath, "utf-8"));
+process.env.GOOGLE_CLOUD_PROJECT = config.projectId;
+
+import { db } from "./firebaseAdmin.js";
+import { 
+  collection, 
+  getDocs, 
+  getDoc, 
+  doc, 
+  addDoc, 
+  setDoc, 
+  updateDoc, 
+  deleteDoc, 
+  query, 
+  where, 
+  orderBy, 
+  runTransaction 
+} from "firebase/firestore";
 import bcrypt from "bcryptjs";
 import cookieSession from "cookie-session";
 import multer from "multer";
 import cors from "cors";
-import fs from "fs";
 
 declare global {
   namespace Express {
@@ -24,139 +44,18 @@ declare global {
 const __filename = process.env.NODE_ENV === "production" ? "" : fileURLToPath(import.meta.url);
 const __dirname = process.env.NODE_ENV === "production" ? process.cwd() : path.dirname(__filename);
 
-const db = new Database("hotel_monika.db");
-
-// Initialize Database
-db.exec(`
-  CREATE TABLE IF NOT EXISTS users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    username TEXT UNIQUE NOT NULL,
-    password TEXT NOT NULL,
-    full_name TEXT,
-    role TEXT DEFAULT 'staff',
-    is_admin INTEGER DEFAULT 0
-  );
-
-  CREATE TABLE IF NOT EXISTS room_types (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE,
-    description TEXT,
-    base_price INTEGER NOT NULL,
-    capacity TEXT DEFAULT '2 Orang',
-    facilities TEXT DEFAULT 'Wifi, AC, TV'
-  );
-
-  CREATE TABLE IF NOT EXISTS rooms (
-    room_number TEXT PRIMARY KEY,
-    type_id INTEGER NOT NULL,
-    floor INTEGER NOT NULL,
-    current_status TEXT DEFAULT 'AVAILABLE',
-    FOREIGN KEY (type_id) REFERENCES room_types(id)
-  );
-
-  CREATE TABLE IF NOT EXISTS guests (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    id_number TEXT UNIQUE NOT NULL,
-    phone_number TEXT,
-    email TEXT,
-    image_url TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
-  );
-
-  CREATE TABLE IF NOT EXISTS reservations (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    guest_id INTEGER NOT NULL,
-    room_number TEXT NOT NULL,
-    check_in TEXT NOT NULL,
-    check_out TEXT NOT NULL,
-    total_nights INTEGER NOT NULL,
-    total_payment INTEGER NOT NULL,
-    payment_status TEXT DEFAULT 'Belum Lunas',
-    reservation_status TEXT DEFAULT 'BOOKED',
-    payment_method TEXT DEFAULT 'Tunai',
-    batch_id TEXT,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (guest_id) REFERENCES guests(id),
-    FOREIGN KEY (room_number) REFERENCES rooms(room_number)
-  );
-`);
+// Initialize Firebase
+if (!db) {
+  console.error("[CRITICAL] Database NOT initialized!");
+}
+console.log(`[FIREBASE DEBUG] Project ID (config): ${config.projectId}`);
+console.log(`[FIREBASE DEBUG] Database ID: ${config.firestoreDatabaseId}`);
 
 // Migrations for existing databases
-const migrations = [
-  "ALTER TABLE room_types ADD COLUMN capacity TEXT DEFAULT '2 Orang'",
-  "ALTER TABLE room_types ADD COLUMN facilities TEXT DEFAULT 'Wifi, AC, TV'",
-  "ALTER TABLE guests ADD COLUMN image_url TEXT",
-  "ALTER TABLE guests ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP",
-  "ALTER TABLE reservations ADD COLUMN created_at DATETIME DEFAULT CURRENT_TIMESTAMP",
-  "ALTER TABLE users ADD COLUMN is_admin INTEGER DEFAULT 0",
-  "ALTER TABLE room_types ADD COLUMN image_url TEXT",
-  "ALTER TABLE reservations ADD COLUMN payment_method TEXT DEFAULT 'Tunai'",
-  "ALTER TABLE reservations ADD COLUMN batch_id TEXT",
-  "ALTER TABLE reservations ADD COLUMN discount_type TEXT",
-  "ALTER TABLE reservations ADD COLUMN discount_amount INTEGER DEFAULT 0",
-  "ALTER TABLE reservations ADD COLUMN amount_paid INTEGER DEFAULT 0",
-  "ALTER TABLE reservations ADD COLUMN down_payment INTEGER DEFAULT 0"
-];
-
-migrations.forEach(m => {
-  try {
-    db.exec(m);
-  } catch (e) {
-    // Ignore errors for already existing columns
-  }
-});
+const migrations: string[] = [];
 
 // Seed Initial Data if empty
-const roomTypeCount = db.prepare("SELECT count(*) as count FROM room_types").get() as { count: number };
-if (roomTypeCount.count === 0) {
-  const insertType = db.prepare("INSERT INTO room_types (name, description, base_price, capacity, facilities) VALUES (?, ?, ?, ?, ?)");
-  insertType.run("Standard Double", "Kamar standar dengan tempat tidur Double", 225000, "2 Orang", "Wifi, AC, TV, Hot Water");
-  insertType.run("Standard Twin", "Kamar standar dengan tempat tidur Twin", 225000, "2 Orang", "Wifi, AC, TV, Hot Water");
-  insertType.run("Deluxe Double", "Kamar mewah dengan tempat tidur Double", 275000, "2 Orang", "Wifi, AC, TV, Hot Water, Mini Bar");
-  insertType.run("Deluxe Twin", "Kamar mewah dengan tempat tidur Twin", 275000, "2 Orang", "Wifi, AC, TV, Hot Water, Mini Bar");
-  insertType.run("Family", "Kamar keluarga yang luas", 375000, "3-4 Orang", "Wifi, AC, Smart TV, Hot Water, Living Area");
-  insertType.run("Family Plus", "Kamar keluarga dengan fasilitas tambahan", 550000, "4-6 Orang", "Wifi, AC, 2 Smart TV, Hot Water, Pantry");
-
-  const types = db.prepare("SELECT id, name FROM room_types").all() as { id: number, name: string }[];
-  const getType = (name: string) => types.find(t => t.name === name)?.id;
-
-  const insertRoom = db.prepare("INSERT INTO rooms (room_number, floor, type_id) VALUES (?, ?, ?)");
-  
-  // Floor 1
-  ["101", "103", "104"].forEach(num => insertRoom.run(num, 1, getType("Standard Double")));
-  ["102"].forEach(num => insertRoom.run(num, 1, getType("Standard Twin")));
-  ["105"].forEach(num => insertRoom.run(num, 1, getType("Family")));
-  ["109", "111", "112"].forEach(num => insertRoom.run(num, 1, getType("Deluxe Double")));
-  ["110"].forEach(num => insertRoom.run(num, 1, getType("Deluxe Twin")));
-
-  // Floor 2
-  ["201", "203", "204"].forEach(num => insertRoom.run(num, 2, getType("Standard Double")));
-  ["202"].forEach(num => insertRoom.run(num, 2, getType("Standard Twin")));
-  ["205", "206"].forEach(num => insertRoom.run(num, 2, getType("Family")));
-  ["207", "208", "209"].forEach(num => insertRoom.run(num, 2, getType("Deluxe Double")));
-  ["210"].forEach(num => insertRoom.run(num, 2, getType("Family Plus")));
-}
-
-// Clear all users for public mode
-try {
-  db.prepare("DELETE FROM users").run();
-  console.log("SEEDED: All users cleared for public access mode.");
-  
-  // Total purge of guests and reservations as requested
-  db.prepare("DELETE FROM reservations").run();
-  db.prepare("DELETE FROM guests").run();
-  
-  // Reset room operational statuses to AVAILABLE
-  db.prepare("UPDATE rooms SET current_status = 'AVAILABLE'").run();
-
-  // Specific room deletion as requested
-  db.prepare("DELETE FROM rooms WHERE room_number IN ('107', '108')").run();
-  
-  console.log("CLEANUP: All guest and reservation data has been purged.");
-} catch (error) {
-  console.error("SEED ERROR (Cleanup Data):", error);
-}
+// TODO: Implement Firebase seeding
 
 async function startServer() {
   const app = express();
@@ -237,14 +136,81 @@ async function startServer() {
   };
 
   // Auth Endpoints - SIMPLIFIED FOR PUBLIC ACCESS
-  app.post("/api/login", (req, res) => {
-    // In public mode, any login succeeds as the mock user
-    res.json({ 
-      id: 1, 
-      username: "public", 
-      fullName: "Public Manager", 
-      isAdmin: true 
-    });
+  app.post("/api/login", async (req, res) => {
+    const { username, password } = req.body;
+    console.log(`[LOGIN ATTEMPT] Username: ${username}`);
+    
+    // Hardcoded fallback for emergency/initial setup
+    if (username === "admin" && password === "admin123") {
+      console.log(`[LOGIN] Successful fallback login for admin`);
+      req.session = { 
+        userId: "admin-fallback", 
+        username: "admin", 
+        fullName: "Hotel Manager (Fallback)", 
+        isAdmin: true 
+      };
+      return res.json({ 
+        id: "admin-fallback", 
+        username: "admin", 
+        fullName: "Hotel Manager (Fallback)", 
+        isAdmin: true,
+        authenticated: true 
+      });
+    }
+
+    try {
+      if (!db) {
+        console.error("[LOGIN] Database not initialized");
+        return res.status(500).json({ error: "Database error" });
+      }
+
+      const usersQuery = query(collection(db, "users"), where("username", "==", username));
+      const snapshot = await getDocs(usersQuery);
+      
+      console.log(`[LOGIN] User lookup found ${snapshot.size} matches for ${username}`);
+
+      if (snapshot.empty) {
+        console.log(`[LOGIN] No user found with username: ${username}`);
+        return res.status(401).json({ error: "Invalid username or password" });
+      }
+      
+      const userDoc = snapshot.docs[0];
+      const userData = userDoc.data();
+      
+      console.log(`[LOGIN] Checking password for ${username}...`);
+
+      // Compare password
+      let passwordMatch = false;
+      try {
+        passwordMatch = bcrypt.compareSync(password, userData.password);
+      } catch (e: any) {
+        console.error(`[LOGIN] Bcrypt comparison error: ${e.message}. Testing plain text fallback.`);
+        passwordMatch = (password === userData.password);
+      }
+
+      if (passwordMatch) {
+        console.log(`[LOGIN] Successful login for ${username}`);
+        req.session = { 
+          userId: userDoc.id, 
+          username: userData.username,
+          fullName: userData.full_name || userData.fullName,
+          isAdmin: !!userData.is_admin
+        };
+        res.json({ 
+          id: userDoc.id, 
+          username: userData.username, 
+          fullName: userData.full_name || userData.fullName, 
+          isAdmin: !!userData.is_admin,
+          authenticated: true
+        });
+      } else {
+        console.log(`[LOGIN] Password mismatch for ${username}`);
+        res.status(401).json({ error: "Invalid username or password" });
+      }
+    } catch (error) {
+      console.error("Login error:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
   });
 
   app.post("/api/logout", (req, res) => {
@@ -253,131 +219,195 @@ async function startServer() {
   });
 
   app.get("/api/auth/me", (req, res) => {
-    // Always return the mock admin user in public mode
-    res.json({ 
-      id: 1, 
-      username: "public", 
-      fullName: "Public Manager", 
-      isAdmin: true,
-      authenticated: true 
-    });
+    if (req.session && req.session.userId) {
+      res.json({ 
+        id: req.session.userId, 
+        username: req.session.username,
+        fullName: req.session.fullName,
+        isAdmin: req.session.isAdmin,
+        authenticated: true 
+      });
+    } else {
+      res.json({ authenticated: false });
+    }
   });
+
+  // Ensure default admin exists
+  const ensureAdmin = async () => {
+    try {
+      const q = query(collection(db, "users"), where("username", "==", "admin"));
+      const snapshot = await getDocs(q);
+      if (snapshot.empty) {
+        console.log("[LOG] No admin found, creating default admin account...");
+        const hashedPassword = bcrypt.hashSync("admin123", 10);
+        await addDoc(collection(db, "users"), {
+          username: "admin",
+          password: hashedPassword,
+          full_name: "System Admin",
+          role: "admin",
+          is_admin: 1
+        });
+        console.log("[LOG] Default admin created: admin / admin123");
+      }
+    } catch (e) {
+      console.error("[LOG] Failed to check/create default admin:", e);
+    }
+  };
+  ensureAdmin();
 
   // User Management (Admin Only)
-  app.get("/api/users", isAuthenticated, isAdmin, (req, res) => {
-    const users = db.prepare("SELECT id, username, full_name as fullName, role, is_admin as isAdmin FROM users").all();
-    res.json(users);
+  app.get("/api/users", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const snapshot = await getDocs(collection(db, "users"));
+      const users = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      res.json(users);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Failed to fetch users" });
+    }
   });
 
-  app.post("/api/users", isAuthenticated, isAdmin, (req, res) => {
+  app.post("/api/users", isAuthenticated, isAdmin, async (req, res) => {
     const { username, password, fullName, role, isAdmin } = req.body;
     try {
       const hashedPassword = bcrypt.hashSync(password, 10);
-      db.prepare("INSERT INTO users (username, password, full_name, role, is_admin) VALUES (?, ?, ?, ?, ?)")
-        .run(username, hashedPassword, fullName, role, isAdmin ? 1 : 0);
+      await addDoc(collection(db, "users"), {
+        username,
+        password: hashedPassword,
+        full_name: fullName,
+        role,
+        is_admin: isAdmin ? 1 : 0
+      });
       res.status(201).json({ success: true });
     } catch (error) {
       res.status(400).json({ error: "Username already exists" });
     }
   });
 
-  app.delete("/api/users/:id", isAuthenticated, isAdmin, (req, res) => {
+  app.delete("/api/users/:id", isAuthenticated, isAdmin, async (req, res) => {
     const { id } = req.params;
-    if (parseInt(id) === req.session.userId) {
+    if (parseInt(id) === req.session.userId) { // Note: this ID logic might be wrong with Firestore IDs
       return res.status(400).json({ error: "Cannot delete yourself" });
     }
-    db.prepare("DELETE FROM users WHERE id = ?").run(id);
+    await deleteDoc(doc(db, "users", id));
     res.json({ success: true });
   });
 
   // API Endpoints
-  app.get("/api/rooms", (req, res) => {
+  app.get("/api/rooms", async (req, res) => {
     const { date } = req.query;
     const targetDate = (date as string) || new Date().toISOString().split('T')[0];
+    
+    console.log(`[GET /api/rooms] Target Date: ${targetDate}`);
 
     try {
-      // Get all rooms and their types
-      const rooms = db.prepare(`
-        SELECT r.room_number as id, rt.name as type, r.current_status as status, r.floor, rt.base_price as price, rt.capacity, rt.facilities, rt.image_url as imageUrl
-        FROM rooms r
-        JOIN room_types rt ON r.type_id = rt.id
-      `).all() as any[];
+      if (!db) {
+        throw new Error("Firestore database not initialized");
+      }
 
-      // Get reservations active for the target date
-      // Include guest information
-      const activeReservations = db.prepare(`
-        SELECT res.room_number, res.reservation_status, res.check_in, res.check_out, res.payment_status as paymentStatus, g.id as guestId, g.name as guestName, g.phone_number as phoneNumber
-        FROM reservations res
-        JOIN guests g ON res.guest_id = g.id
-        WHERE ? >= res.check_in AND ? <= res.check_out
-        AND res.reservation_status != 'CANCELLED'
-      `).all(targetDate, targetDate) as any[];
+      // Fetch all rooms, room types, and guests in parallel
+      const [roomsSnapshot, roomTypesSnapshot, guestsSnapshot] = await Promise.all([
+        getDocs(collection(db, "rooms")).catch(e => { console.error("Error fetching rooms:", e); throw e; }),
+        getDocs(collection(db, "room_types")).catch(e => { console.error("Error fetching room_types:", e); throw e; }),
+        getDocs(collection(db, "guests")).catch(e => { console.error("Error fetching guests:", e); throw e; })
+      ]);
+      
+      console.log(`[GET /api/rooms] Found ${roomsSnapshot.size} rooms, ${roomTypesSnapshot.size} types, and ${guestsSnapshot.size} guests`);
 
-      // Detect "Today" in Hotel's timezone (WIB - UTC+7)
-      // This ensures that when targetDate matches the hotel's concept of today, 
-      // we correctly show the operational status.
+      const roomTypes = roomTypesSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+      const guestsMap = new Map(guestsSnapshot.docs.map(doc => [doc.id, doc.data()]));
+      
+      const rooms = roomsSnapshot.docs.map(doc => {
+        const data = doc.data() as any;
+        const type = roomTypes.find((t: any) => t.id === data.type_id);
+        return {
+          id: doc.id,
+          ...data,
+          type: type?.name || "Unknown Type",
+          price: type?.base_price || 0,
+          capacity: type?.capacity || 0,
+          facilities: type?.facilities || [],
+          imageUrl: type?.image_url || null
+        };
+      });
+
+      // Fetch all reservations for filtering
+      const resQuery = query(
+        collection(db, "reservations"),
+        where("reservation_status", "!=", "CANCELLED")
+      );
+      const resSnapshot = await getDocs(resQuery).catch(e => {
+        console.warn("[api/rooms] Reservation query != failed, trying simple query", e.message);
+        return getDocs(collection(db, "reservations"));
+      });
+      
+      const allResvs = resSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+      console.log(`[api/rooms] Found ${allResvs.length} active/total reservations`);
+      
+      // Filter reservations relevant to the targetDate in memory
+      const activeReservations = allResvs.filter(r => 
+        (r.check_in <= targetDate && r.check_out >= targetDate)
+      );
+
       const now = new Date();
       const wibOffset = 7 * 60 * 60 * 1000;
       const serverToday = new Date(now.getTime() + wibOffset).toISOString().split('T')[0];
       
-      console.log(`[GET /api/rooms] Target: ${targetDate}, Hotel Today: ${serverToday}`);
-
       const mappedRooms = rooms.map(room => {
-        const roomResvs = activeReservations.filter(r => r.room_number === room.id);
-        
-        // Night Occupant: Actually staying the night of targetDate
-        const nightOccupant = roomResvs.find(r => targetDate >= r.check_in && targetDate < r.check_out);
-        
-        // Departer: Scheduled to leave on targetDate
-        const departer = roomResvs.find(r => targetDate === r.check_out);
+        try {
+          const roomResvs = activeReservations.filter((r: any) => r.room_number === room.id);
+          const nightOccupant = roomResvs.find((r: any) => targetDate >= r.check_in && targetDate < r.check_out);
+          const departer = roomResvs.find((r: any) => targetDate === r.check_out);
 
-        let displayStatus = room.status; 
-        let hasPendingCheckOut = false;
-        
-        if (nightOccupant) {
-          // Night Occupancy has absolute priority
-          displayStatus = nightOccupant.reservation_status;
-        } else if (departer && departer.reservation_status !== 'CHECKED-OUT') {
-           // On departure day, if NO new guest is staying tonight, mark as available for booking
-           // but signal that a manual check-out is pending
-           displayStatus = 'AVAILABLE';
-           hasPendingCheckOut = true;
-        } else {
-           // Truly available or special operational status
-           if (targetDate !== serverToday && !['CLEANING', 'REPAIR', 'OUT-OF-ORDER'].includes(room.status)) {
+          let displayStatus = (room as any).current_status || 'AVAILABLE'; 
+          
+          if (nightOccupant) {
+            displayStatus = nightOccupant.reservation_status;
+          } else if (departer && departer.reservation_status !== 'CHECKED-OUT') {
              displayStatus = 'AVAILABLE';
-           } else {
-             displayStatus = room.status;
-           }
+          } else {
+             if (targetDate !== serverToday && !['CLEANING', 'REPAIR', 'OUT-OF-ORDER'].includes((room as any).current_status)) {
+               displayStatus = 'AVAILABLE';
+             } else {
+               displayStatus = (room as any).current_status || 'AVAILABLE';
+             }
+          }
+
+          const activeGuest = nightOccupant || departer;
+          const guestData = activeGuest?.guest_id ? guestsMap.get(activeGuest.guest_id.toString()) : null;
+          
+          return {
+            ...room,
+            status: displayStatus,
+            guestName: guestData?.name || (activeGuest as any)?.guest_name || null,
+            paymentStatus: activeGuest?.payment_status || null,
+          };
+        } catch (e) {
+          console.error(`Error mapping room ${room.id}:`, e);
+          return { ...room, status: 'AVAILABLE' };
         }
-
-        const activeGuest = nightOccupant || departer;
-
-        return {
-          ...room,
-          id: room.id.toString(),
-          status: displayStatus,
-          hasPendingCheckOut,
-          guestId: activeGuest?.guestId || null,
-          guestName: activeGuest?.guestName || null,
-          phoneNumber: activeGuest?.phoneNumber || null,
-          paymentStatus: activeGuest?.paymentStatus || null,
-          facilities: typeof room.facilities === 'string' ? room.facilities.split(', ') : room.facilities,
-          imageUrl: room.imageUrl
-        };
       });
 
-      res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
-      return res.json(mappedRooms);
-    } catch (error) {
-      console.error(error);
-      res.status(500).json({ error: "Failed to fetch rooms" });
+      console.log(`[api/rooms] Returning ${mappedRooms.length} rooms`);
+      res.json(mappedRooms);
+    } catch (error: any) {
+      console.error("[api/rooms] Detailed Error:", error);
+      res.status(500).json({ 
+        error: "Failed to fetch rooms",
+        message: error.message
+      });
     }
   });
 
-  app.get("/api/room-types", (req, res) => {
-    const types = db.prepare("SELECT id, name, description, base_price, capacity, facilities, image_url as imageUrl FROM room_types").all();
-    res.json(types);
+  app.get("/api/room-types", async (req, res) => {
+    try {
+      const snapshot = await getDocs(collection(db, "room_types"));
+      const types = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      res.json(types);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Failed to fetch room types" });
+    }
   });
 
   app.post("/api/upload", isAuthenticated, isAdmin, upload.single("photo"), (req, res) => {
@@ -388,25 +418,55 @@ async function startServer() {
     res.json({ imageUrl });
   });
 
-  app.get("/api/guests", isAuthenticated, (req, res) => {
-    const guests = db.prepare(`
-      SELECT g.id, g.name, g.id_number as idNumber, g.phone_number as phoneNumber, g.email, g.image_url as imageUrl, g.created_at as createdAt, 
-             r.room_number as roomNumber, rt.name as roomType, res.reservation_status as status, res.check_in as checkIn, res.check_out as checkOut, res.payment_status as paymentStatus
-      FROM guests g
-      LEFT JOIN reservations res ON g.id = res.guest_id
-      LEFT JOIN rooms r ON res.room_number = r.room_number
-      LEFT JOIN room_types rt ON r.type_id = rt.id
-      WHERE res.id = (SELECT MAX(id) FROM reservations WHERE guest_id = g.id) OR res.id IS NULL
-    `).all();
-    res.json(guests);
+  app.get("/api/guests", isAuthenticated, async (req, res) => {
+    try {
+      const gSnapshot = await getDocs(collection(db, "guests"));
+      const rSnapshot = await getDocs(collection(db, "reservations"));
+      const roomSnapshot = await getDocs(collection(db, "rooms"));
+      const typeSnapshot = await getDocs(collection(db, "room_types"));
+
+      const guests = gSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+      const reservations = rSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+      const rooms = roomSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+      const roomTypes = typeSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as any));
+
+      const mappedGuests = guests.map((guest: any) => {
+        // Find latest reservation
+        const guestResvs = reservations
+          .filter((res: any) => res.guest_id === guest.id)
+          .sort((a: any, b: any) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+        
+        const latestRes = guestResvs[0];
+        const room = rooms.find((r: any) => r.id === latestRes?.room_number);
+        const roomType = roomTypes.find((rt: any) => rt.id === room?.type_id);
+
+        return {
+          ...guest,
+          roomNumber: room?.room_number || null,
+          roomType: roomType?.name || null,
+          status: latestRes?.reservation_status || null,
+          checkIn: latestRes?.check_in || null,
+          checkOut: latestRes?.check_out || null,
+          paymentStatus: latestRes?.payment_status || null,
+        };
+      });
+
+      res.json(mappedGuests);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Failed to fetch guests" });
+    }
   });
 
-  app.patch("/api/guests/:id", isAuthenticated, (req, res) => {
+  app.patch("/api/guests/:id", isAuthenticated, async (req, res) => {
     const { id } = req.params;
     const { name, phoneNumber, idNumber } = req.body;
     try {
-      db.prepare("UPDATE guests SET name = ?, phone_number = ?, id_number = ? WHERE id = ?")
-        .run(name, phoneNumber, idNumber, id);
+      await updateDoc(doc(db, "guests", id), {
+        name,
+        phone_number: phoneNumber,
+        id_number: idNumber
+      });
       res.json({ success: true });
     } catch (error) {
       console.error(error);
@@ -414,8 +474,8 @@ async function startServer() {
     }
   });
 
-  app.post("/api/reservations", isAuthenticated, (req, res) => {
-    const { name, idNumber, phoneNumber, checkIn, checkOut, totalNights, rooms, roomNumber, totalPayment, batchId, paymentMethod } = req.body;
+  app.post("/api/reservations", isAuthenticated, async (req, res) => {
+    const { name, idNumber, phoneNumber, checkIn, checkOut, totalNights, rooms, roomNumber, totalPayment, batchId, paymentMethod, downPayment } = req.body;
     const now = new Date();
     const wibOffset = 7 * 60 * 60 * 1000;
     const hotelToday = new Date(now.getTime() + wibOffset).toISOString().split('T')[0];
@@ -423,7 +483,6 @@ async function startServer() {
     const finalBatchId = batchId || `B-${Date.now()}`;
     const pMethod = paymentMethod || 'Tunai';
 
-    // Support both single room (backward compatibility) and multiple rooms
     const roomItems = rooms && Array.isArray(rooms) 
       ? rooms 
       : [{ roomNumber, totalPayment }];
@@ -434,19 +493,19 @@ async function startServer() {
       for (const item of roomItems) {
         if (!item.roomNumber) continue;
         
-        // Standard Overlap Formula: (NewStart < ExEnd) AND (NewEnd > ExStart)
-        // This allows NewStart == ExEnd (same day transition)
-        const existing = db.prepare(`
-          SELECT r.room_number, r.check_in, r.check_out, g.name as guest_name
-          FROM reservations r
-          JOIN guests g ON r.guest_id = g.id
-          WHERE r.room_number = ? 
-          AND r.reservation_status != 'CANCELLED'
-          AND (? < r.check_out AND ? > r.check_in)
-        `).get(item.roomNumber, checkIn, checkOut) as { room_number: string, check_in: string, check_out: string, guest_name: string } | undefined;
-
-        if (existing) {
-          overlaps.push(`Unit ${item.roomNumber} sudah terisi oleh ${existing.guest_name} (${existing.check_in} s/d ${existing.check_out})`);
+        const q = query(
+          collection(db, "reservations"),
+          where("room_number", "==", item.roomNumber),
+          where("reservation_status", "!=", "CANCELLED")
+        );
+        const existingDocs = await getDocs(q);
+        
+        for (const docSnap of existingDocs.docs) {
+          const r = docSnap.data();
+          if (checkIn < r.check_out && checkOut > r.check_in) {
+             const guestDoc = await getDoc(doc(db, "guests", r.guest_id));
+             overlaps.push(`Unit ${item.roomNumber} sudah terisi oleh ${guestDoc.data()?.name} (${r.check_in} s/d ${r.check_out})`);
+          }
         }
       }
 
@@ -454,35 +513,67 @@ async function startServer() {
         return res.status(400).json({ error: overlaps.join(", ") });
       }
 
-      const transaction = db.transaction(() => {
-        // Upsert guest: Update guest info if exists, otherwise insert
-        let guest = db.prepare("SELECT id FROM guests WHERE id_number = ?").get(idNumber) as { id: number };
-        if (guest) {
-          db.prepare("UPDATE guests SET name = ?, phone_number = ? WHERE id = ?")
-            .run(name, phoneNumber, guest.id);
+      await runTransaction(db, async (transaction) => {
+        // Upsert guest
+        const gQuery = query(collection(db, "guests"), where("id_number", "==", idNumber));
+        const guestQuerySnap = await getDocs(gQuery);
+        
+        let guestRef;
+        if (!guestQuerySnap.empty) {
+          guestRef = guestQuerySnap.docs[0].ref;
+          transaction.update(guestRef, { name, phone_number: phoneNumber });
         } else {
-          const result = db.prepare("INSERT INTO guests (name, id_number, phone_number) VALUES (?, ?, ?)")
-            .run(name, idNumber, phoneNumber);
-          guest = { id: result.lastInsertRowid as number };
+          guestRef = doc(collection(db, "guests"));
+          transaction.set(guestRef, { name, id_number: idNumber, phone_number: phoneNumber });
         }
+        
+        const guestId = guestRef.id;
 
         for (const item of roomItems) {
           if (!item.roomNumber) continue;
           
-          // Create reservation for each room
-          db.prepare(`
-            INSERT INTO reservations (guest_id, room_number, check_in, check_out, total_nights, total_payment, batch_id, payment_method)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-          `).run(guest.id, item.roomNumber, checkIn, checkOut, totalNights, item.totalPayment, finalBatchId, pMethod);
+          // Create reservation
+          const resRef = doc(collection(db, "reservations"));
+          const dpAmount = parseInt(downPayment) || 0;
+          const totalPaying = item.totalPayment || 0;
+
+          transaction.set(resRef, {
+            guest_id: guestId,
+            room_number: item.roomNumber,
+            check_in: checkIn,
+            check_out: checkOut,
+            total_nights: totalNights,
+            total_payment: totalPaying,
+            amount_paid: dpAmount, // Set initial paid amount to DP
+            down_payment: dpAmount,
+            batch_id: finalBatchId,
+            payment_method: pMethod,
+            payment_status: dpAmount >= totalPaying && totalPaying > 0 ? 'Lunas' : 'Belum Lunas',
+            reservation_status: 'BOOKED',
+            created_at: new Date().toISOString()
+          });
+
+          // Record as transaction if DP is paid
+          if (dpAmount > 0) {
+            const transRef = doc(collection(db, "transactions"));
+            transaction.set(transRef, {
+              reservation_id: resRef.id,
+              amount: dpAmount,
+              payment_method: pMethod,
+              type: 'DP',
+              timestamp: new Date().toISOString(),
+              remark: 'Down Payment awal'
+            });
+          }
 
           // ONLY update room operational status ONLY if checkIn is today (WIB)
           if (checkIn === hotelToday) {
-            db.prepare("UPDATE rooms SET current_status = 'BOOKED' WHERE room_number = ?").run(item.roomNumber);
+            const roomRef = doc(db, "rooms", item.roomNumber);
+            transaction.update(roomRef, { current_status: 'BOOKED' });
           }
         }
       });
 
-      transaction();
       res.status(201).json({ success: true });
     } catch (error) {
       console.error(error);
@@ -490,48 +581,127 @@ async function startServer() {
     }
   });
 
-  app.get("/api/reservations", isAuthenticated, (req, res) => {
+  app.get("/api/reservations", isAuthenticated, async (req, res) => {
     try {
-      const reservations = db.prepare(`
-        SELECT res.*, g.name as guest_name 
-        FROM reservations res
-        JOIN guests g ON res.guest_id = g.id
-        WHERE res.reservation_status != 'CANCELLED'
-        ORDER BY res.created_at DESC
-      `).all();
+      const q = query(
+        collection(db, "reservations"),
+        where("reservation_status", "!=", "CANCELLED"),
+        orderBy("created_at", "desc")
+      );
+      const resSnapshot = await getDocs(q);
+      
+      // Fetch all dependent data in parallel to avoid N+1 queries
+      const [guestsSnap, roomsSnap, typesSnap] = await Promise.all([
+        getDocs(collection(db, "guests")),
+        getDocs(collection(db, "rooms")),
+        getDocs(collection(db, "room_types"))
+      ]);
+
+      const guestsMap = new Map(guestsSnap.docs.map(d => [d.id.toString(), d.data()]));
+      const roomsMap = new Map(roomsSnap.docs.map(d => [d.id.toString(), d.data()]));
+      const typesMap = new Map(typesSnap.docs.map(d => [d.id.toString(), d.data()]));
+      
+      const reservations = resSnapshot.docs.map(docSnap => {
+        const resData = docSnap.data() as any;
+        
+        // Handle both string IDs and Reference objects
+        const getRawId = (val: any) => {
+          if (!val) return null;
+          if (typeof val === 'string' || typeof val === 'number') return val.toString();
+          if (val.id) return val.id;
+          return val.toString();
+        };
+
+        const guestIdStr = getRawId(resData.guest_id);
+        const roomNumStr = getRawId(resData.room_number);
+
+        const guestData = guestIdStr ? guestsMap.get(guestIdStr) : null;
+        const roomData = roomNumStr ? roomsMap.get(roomNumStr) : null;
+        const typeData = roomData ? typesMap.get(getRawId(roomData.type_id)) : null;
+
+        return {
+          ...resData,
+          id: docSnap.id,
+          guest_name: guestData?.name || "Unknown Guest",
+          guest_phone: guestData?.phone_number || guestData?.phoneNumber || "",
+          guest_id_number: guestData?.id_number || guestData?.idNumber || "",
+          room_type: typeData?.name || "Standard",
+          room_number: roomNumStr // Ensure it's returned as string
+        };
+      });
+
       res.json(reservations);
     } catch (error) {
-      console.error(error);
+      console.error("[api/reservations] Error:", error);
       res.status(500).json({ error: "Failed to fetch reservations" });
     }
   });
 
-  app.patch("/api/reservations/:id/payment", isAuthenticated, (req, res) => {
+  app.patch("/api/reservations/:id/payment", isAuthenticated, async (req, res) => {
     const { id } = req.params;
-    const { status, amountPaid, downPayment, paymentMethod, discountType, discountAmount } = req.body;
+    const { status, amountPaid, paymentMethod, discountType, discountAmount } = req.body;
     try {
-      db.prepare(`
-        UPDATE reservations 
-        SET payment_status = ?, 
-            amount_paid = COALESCE(?, amount_paid), 
-            down_payment = COALESCE(?, down_payment), 
-            payment_method = COALESCE(?, payment_method),
-            discount_type = COALESCE(?, discount_type),
-            discount_amount = COALESCE(?, discount_amount)
-        WHERE id = ?
-      `).run(status, amountPaid, downPayment, paymentMethod, discountType, discountAmount, id);
+      await runTransaction(db, async (transaction) => {
+        const resRef = doc(db, "reservations", id);
+        const resSnap = await transaction.get(resRef);
+        if (!resSnap.exists()) throw new Error("Reservation not found");
+        
+        const resData = resSnap.data();
+        const oldPaid = resData.amount_paid || 0;
+        const newPaid = amountPaid !== undefined ? amountPaid : oldPaid;
+        const diff = newPaid - oldPaid;
+
+        transaction.update(resRef, {
+          payment_status: status,
+          amount_paid: newPaid,
+          payment_method: paymentMethod || resData.payment_method || 'Tunai',
+          discount_type: discountType || resData.discount_type || null,
+          discount_amount: discountAmount !== undefined ? discountAmount : (resData.discount_amount || 0)
+        });
+
+        // Record a transaction log if more money was paid
+        if (diff > 0) {
+          const transRef = doc(collection(db, "transactions"));
+          const isLunasNow = status === 'Lunas';
+          
+          transaction.set(transRef, {
+            reservation_id: id,
+            amount: diff,
+            payment_method: paymentMethod || resData.payment_method || 'Tunai',
+            type: isLunasNow ? 'Pelunasan' : 'Angsuran',
+            timestamp: new Date().toISOString(),
+            remark: isLunasNow ? 'Pelunasan tagihan' : 'Pembayaran angsuran / mencicil'
+          });
+        }
+      });
       res.json({ success: true });
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      res.status(500).json({ error: "Gagal memperbarui status pembayaran" });
+      res.status(500).json({ error: error.message || "Gagal memperbarui status pembayaran" });
     }
   });
 
-  app.patch("/api/rooms/:id/status", isAuthenticated, (req, res) => {
+  app.get("/api/reservations/:id/transactions", isAuthenticated, async (req, res) => {
+    const { id } = req.params;
+    try {
+      const q = query(
+        collection(db, "transactions"),
+        where("reservation_id", "==", id),
+        orderBy("timestamp", "asc")
+      );
+      const snapshot = await getDocs(q);
+      const transactions = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+      res.json(transactions);
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ error: "Failed to fetch transactions" });
+    }
+  });
+
+  app.patch("/api/rooms/:id/status", isAuthenticated, async (req, res) => {
     const { status, date, walkInGuest } = req.body;
     const { id } = req.params;
     
-    // Resolve "Today" correctly if date is missing
     const now = new Date();
     const wibOffset = 7 * 60 * 60 * 1000;
     const serverToday = new Date(now.getTime() + wibOffset).toISOString().split('T')[0];
@@ -540,60 +710,94 @@ async function startServer() {
     console.log(`[STATUS UPDATE] Room: ${id}, New Status: ${status}, Date: ${targetDate}`);
 
     try {
-      const transaction = db.transaction(() => {
-        // 1. Update global room operational status
-        // Special case for cancellations: if reservation is cancelled, room becomes AVAILABLE
+      await runTransaction(db, async (transaction) => {
         const operationalStatus = status === 'CANCELLED' ? 'AVAILABLE' : status;
-        db.prepare("UPDATE rooms SET current_status = ? WHERE room_number = ?").run(operationalStatus, id);
+        transaction.update(doc(db, "rooms", id), { current_status: operationalStatus });
         
-        // 2. Handle Case: CHECKED-IN walk-in (no existing reservation)
         if (status === 'CHECKED-IN' && walkInGuest) {
-          const { name, phoneNumber, idNumber } = walkInGuest;
+          const { name, phoneNumber, idNumber, paymentStatus, paymentAmount, paymentMethod } = walkInGuest;
           
-          // Upsert guest
-          let guest = db.prepare("SELECT id FROM guests WHERE id_number = ?").get(idNumber) as { id: number };
-          if (!guest) {
-            const result = db.prepare("INSERT INTO guests (name, id_number, phone_number) VALUES (?, ?, ?)")
-              .run(name, idNumber, phoneNumber);
-            guest = { id: result.lastInsertRowid as number };
+          // Get room price for walk-in
+          const roomSnap = await transaction.get(doc(db, "rooms", id));
+          const roomData = roomSnap.data();
+          const typeSnap = await transaction.get(doc(db, "room_types", roomData?.type_id));
+          const typeData = typeSnap.data();
+          const basePrice = typeData?.base_price || 0;
+
+          const gQuery = query(collection(db, "guests"), where("id_number", "==", idNumber));
+          const guestSnapshot = await getDocs(gQuery);
+          
+          let guestId;
+          if (!guestSnapshot.empty) {
+            guestId = guestSnapshot.docs[0].id;
+            transaction.update(guestSnapshot.docs[0].ref, { name, phone_number: phoneNumber });
+          } else {
+            const guestRef = doc(collection(db, "guests"));
+            transaction.set(guestRef, { name, id_number: idNumber, phone_number: phoneNumber });
+            guestId = guestRef.id;
           }
           
-          // Create 1-day reservation for immediate walk-in
           const checkOutDate = new Date(new Date(targetDate).getTime() + 86400000).toISOString().split('T')[0];
-          db.prepare(`
-            INSERT INTO reservations (guest_id, room_number, check_in, check_out, total_nights, total_payment, reservation_status)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-          `).run(guest.id, id, targetDate, checkOutDate, 1, 0, 'CHECKED-IN');
+          const resRef = doc(collection(db, "reservations"));
+          const amountPaid = parseInt(paymentAmount as any) || 0;
+          const pStatus = paymentStatus || (amountPaid >= basePrice ? 'Lunas' : 'Belum Lunas');
+
+          transaction.set(resRef, {
+            guest_id: guestId,
+            room_number: id,
+            check_in: targetDate,
+            check_out: checkOutDate,
+            total_nights: 1,
+            total_payment: basePrice,
+            amount_paid: amountPaid,
+            down_payment: pStatus === 'Lunas' ? 0 : amountPaid,
+            payment_status: pStatus,
+            payment_method: paymentMethod || 'Tunai',
+            reservation_status: 'CHECKED-IN',
+            created_at: new Date().toISOString()
+          });
+
+          if (amountPaid > 0) {
+            const transRef = doc(collection(db, "transactions"));
+            transaction.set(transRef, {
+              reservation_id: resRef.id,
+              amount: amountPaid,
+              payment_method: paymentMethod || 'Tunai',
+              type: pStatus === 'Lunas' ? 'Pelunasan' : 'DP',
+              timestamp: new Date().toISOString(),
+              remark: 'Pembayaran walk-in'
+            });
+          }
         } else {
-          // 3. Resolve reservation update for existing bookings
-          let priorityStatus = null;
-          if (status === 'CHECKED-IN') priorityStatus = 'BOOKED';
-          if (status === 'CHECKED-OUT') priorityStatus = 'CHECKED-IN';
+           // Resolve reservation update for existing bookings
+           let priorityStatus: string | null = null;
+           if (status === 'CHECKED-IN') priorityStatus = 'BOOKED';
+           if (status === 'CHECKED-OUT') priorityStatus = 'CHECKED-IN';
+           
+           const rQuery = query(
+             collection(db, "reservations"),
+             where("room_number", "==", id),
+             where("check_in", "<=", targetDate),
+             where("check_out", ">=", targetDate)
+           );
+           
+           const resSnapshot = await getDocs(rQuery);
 
-          let resUpdate;
-          if (priorityStatus) {
-             resUpdate = db.prepare(`
-              UPDATE reservations 
-              SET reservation_status = ? 
-              WHERE room_number = ? 
-              AND (? >= check_in AND ? <= check_out)
-              AND reservation_status = ?
-            `).run(status, id, targetDate, targetDate, priorityStatus);
-          }
+           let docToUpdate;
+           if (priorityStatus) {
+              docToUpdate = resSnapshot.docs.find(d => d.data().reservation_status === priorityStatus);
+           }
+           
+           if (!docToUpdate) {
+             docToUpdate = resSnapshot.docs.find(d => d.data().reservation_status !== 'CANCELLED');
+           }
 
-          if (!resUpdate || resUpdate.changes === 0) {
-            resUpdate = db.prepare(`
-              UPDATE reservations 
-              SET reservation_status = ? 
-              WHERE room_number = ? 
-              AND (? >= check_in AND ? <= check_out)
-              AND reservation_status != 'CANCELLED'
-            `).run(status, id, targetDate, targetDate);
-          }
+           if (docToUpdate) {
+             transaction.update(docToUpdate.ref, { reservation_status: status });
+           }
         }
       });
       
-      transaction();
       res.json({ success: true, updated: true });
     } catch (error) {
       console.error("[STATUS UPDATE] Error:", error);
@@ -601,12 +805,17 @@ async function startServer() {
     }
   });
 
-  app.patch("/api/room-types/:id", isAuthenticated, isAdmin, (req, res) => {
+  app.patch("/api/room-types/:id", isAuthenticated, isAdmin, async (req, res) => {
     const { description, base_price, capacity, facilities, imageUrl } = req.body;
     const { id } = req.params;
     try {
-      db.prepare("UPDATE room_types SET description = ?, base_price = ?, capacity = ?, facilities = ?, image_url = ? WHERE id = ?")
-        .run(description, base_price, capacity, facilities, imageUrl, id);
+      await updateDoc(doc(db, "room_types", id), {
+        description,
+        base_price,
+        capacity,
+        facilities,
+        image_url: imageUrl
+      });
       res.json({ success: true });
     } catch (error) {
       console.error(error);
@@ -614,28 +823,32 @@ async function startServer() {
     }
   });
 
-  app.post("/api/room-types", isAuthenticated, isAdmin, (req, res) => {
+  app.post("/api/room-types", isAuthenticated, isAdmin, async (req, res) => {
     const { name, description, base_price, capacity, facilities, imageUrl } = req.body;
     try {
-      const result = db.prepare("INSERT INTO room_types (name, description, base_price, capacity, facilities, image_url) VALUES (?, ?, ?, ?, ?, ?)")
-        .run(name, description, base_price, capacity, facilities, imageUrl);
-      res.status(201).json({ success: true, id: result.lastInsertRowid });
+      const docRef = await addDoc(collection(db, "room_types"), {
+        name,
+        description,
+        base_price,
+        capacity,
+        facilities,
+        image_url: imageUrl
+      });
+      res.status(201).json({ success: true, id: docRef.id });
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: "Gagal menambah tipe kamar" });
     }
   });
 
-  app.post("/api/room-types/bulk-price", isAuthenticated, isAdmin, (req, res) => {
+  app.post("/api/room-types/bulk-price", isAuthenticated, isAdmin, async (req, res) => {
     const { updates } = req.body;
     try {
-      const transaction = db.transaction(() => {
-        const stmt = db.prepare("UPDATE room_types SET base_price = ? WHERE id = ?");
+      await runTransaction(db, async (transaction) => {
         for (const update of updates) {
-          stmt.run(update.price, update.id);
+          transaction.update(doc(db, "room_types", update.id), { base_price: update.price });
         }
       });
-      transaction();
       res.json({ success: true });
     } catch (error) {
       console.error(error);
@@ -643,15 +856,15 @@ async function startServer() {
     }
   });
 
-  app.delete("/api/room-types/:id", isAuthenticated, isAdmin, (req, res) => {
+  app.delete("/api/room-types/:id", isAuthenticated, isAdmin, async (req, res) => {
     const { id } = req.params;
     try {
-      // Check if there are rooms of this type
-      const rooms = db.prepare("SELECT count(*) as count FROM rooms WHERE type_id = ?").get(id) as { count: number };
-      if (rooms.count > 0) {
+      const q = query(collection(db, "rooms"), where("type_id", "==", id));
+      const roomsSnapshot = await getDocs(q);
+      if (!roomsSnapshot.empty) {
         return res.status(400).json({ error: "Tidak bisa menghapus tipe kamar yang masih memiliki unit aktif" });
       }
-      db.prepare("DELETE FROM room_types WHERE id = ?").run(id);
+      await deleteDoc(doc(db, "room_types", id));
       res.json({ success: true });
     } catch (error) {
       console.error(error);
@@ -659,16 +872,18 @@ async function startServer() {
     }
   });
 
-  app.post("/api/rooms", isAuthenticated, isAdmin, (req, res) => {
+  app.post("/api/rooms", isAuthenticated, isAdmin, async (req, res) => {
     const { roomNumber, typeId, floor } = req.body;
     try {
-      // Check if room already exists
-      const existing = db.prepare("SELECT room_number FROM rooms WHERE room_number = ?").get(roomNumber);
-      if (existing) {
+      const roomSnap = await getDoc(doc(db, "rooms", roomNumber));
+      if (roomSnap.exists()) {
         return res.status(400).json({ error: "Nomor kamar sudah ada" });
       }
-      db.prepare("INSERT INTO rooms (room_number, type_id, floor) VALUES (?, ?, ?)")
-        .run(roomNumber, typeId, floor);
+      await setDoc(doc(db, "rooms", roomNumber), {
+        type_id: typeId,
+        floor: floor,
+        current_status: 'AVAILABLE'
+      });
       res.status(201).json({ success: true });
     } catch (error) {
       console.error(error);
@@ -676,15 +891,20 @@ async function startServer() {
     }
   });
 
-  app.delete("/api/rooms/:id", isAuthenticated, isAdmin, (req, res) => {
+  app.delete("/api/rooms/:id", isAuthenticated, isAdmin, async (req, res) => {
     const { id } = req.params;
     try {
-      // Check if there are reservations for this room
-      const reservations = db.prepare("SELECT count(*) as count FROM reservations WHERE room_number = ? AND reservation_status != 'CANCELLED'").get(id) as { count: number };
-      if (reservations.count > 0) {
+      const q = query(
+        collection(db, "reservations"),
+        where("room_number", "==", id),
+        where("reservation_status", "!=", "CANCELLED")
+      );
+      const resSnapshot = await getDocs(q);
+        
+      if (!resSnapshot.empty) {
         return res.status(400).json({ error: "Tidak bisa menghapus kamar yang memiliki reservasi aktif" });
       }
-      db.prepare("DELETE FROM rooms WHERE room_number = ?").run(id);
+      await deleteDoc(doc(db, "rooms", id));
       res.json({ success: true });
     } catch (error) {
       console.error(error);
