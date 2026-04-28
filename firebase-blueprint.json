@@ -48,9 +48,13 @@
         "check_out": { "type": "string", "format": "date" },
         "total_nights": { "type": "number" },
         "total_payment": { "type": "number" },
+        "total_batch_payment": { "type": "number" },
         "amount_paid": { "type": "number" },
+        "amount_paid_batch": { "type": "number" },
         "down_payment": { "type": "number" },
-        "payment_status": { "type": "string", "enum": ["Lunas", "Belum Lunas"] },
+        "discount_type": { "type": "string" },
+        "discount_amount": { "type": "number" },
+        "payment_status": { "type": "string", "enum": ["Lunas", "Belum Lunas", "Lunas Online"] },
         "reservation_status": { "type": "string", "enum": ["BOOKED", "CHECKED_IN", "CHECKED_OUT", "CANCELLED"] },
         "payment_method": { "type": "string" },
         "batch_id": { "type": "string" },
@@ -63,15 +67,32 @@
       "type": "object",
       "properties": {
         "reservation_id": { "type": "string" },
+        "batch_id": { "type": "string" },
         "amount": { "type": "number" },
         "payment_method": { "type": "string" },
-        "type": { "type": "string", "enum": ["DP", "Pelunasan", "Tambahan"] },
+        "type": { "type": "string", "enum": ["DP", "Pelunasan", "Angsuran", "Tambahan", "Pembayaran Batch"] },
         "timestamp": { "type": "string", "format": "date-time" },
-        "staff_id": { "type": "string" }
+        "staff_id": { "type": "string" },
+        "remark": { "type": "string" }
+      }
+    },
+    "User": {
+      "title": "User",
+      "description": "System user with role-based access",
+      "type": "object",
+      "properties": {
+        "username": { "type": "string" },
+        "fullName": { "type": "string" },
+        "role": { "type": "string", "enum": ["admin", "staff"] },
+        "created_at": { "type": "string", "format": "date-time" }
       }
     }
   },
   "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "System users and their roles"
+    },
     "/guests/{guestId}": {
       "schema": "Guest",
       "description": "Storage for guest master data"

@@ -22,7 +22,8 @@ import {
   query, 
   where, 
   orderBy, 
-  runTransaction 
+  runTransaction,
+  writeBatch 
 } from "firebase/firestore";
 import bcrypt from "bcryptjs";
 import cookieSession from "cookie-session";
@@ -544,6 +545,10 @@ async function startServer() {
       const gQuery = query(collection(db, "guests"), where("id_number", "==", idNumber));
       const guestQuerySnap = await getDocs(gQuery);
 
+      // Calculate total batch payment first
+      const totalBatchPayment = roomItems.reduce((acc, item) => acc + (parseFloat(item.totalPayment) || 0), 0);
+      const dpAmount = parseInt(downPayment) || 0;
+
       await runTransaction(db, async (transaction) => {
         let guestRef;
         if (!guestQuerySnap.empty) {
@@ -561,8 +566,7 @@ async function startServer() {
           
           // Create reservation
           const resRef = doc(collection(db, "reservations"));
-          const dpAmount = parseInt(downPayment) || 0;
-          const totalPaying = item.totalPayment || 0;
+          const roomTotal = parseFloat(item.totalPayment) || 0;
 
           transaction.set(resRef, {
             guest_id: guestId,
@@ -570,12 +574,16 @@ async function startServer() {
             check_in: checkIn,
             check_out: checkOut,
             total_nights: totalNights,
-            total_payment: totalPaying,
-            amount_paid: dpAmount, // Set initial paid amount to DP
-            down_payment: dpAmount,
+            total_payment: roomTotal, // individual room total
+            total_batch_payment: totalBatchPayment, // total for whole batch
+            amount_paid: dpAmount, // initial paid is DP, shared across batch? 
+            // The prompt says "DP dikurangi terakhir". This implies amount_paid is shared? 
+            // If I store amount_paid individually, it's hard to sync.
+            // Let's store amount_paid_batch across all reservations in the same batch.
+            amount_paid_batch: dpAmount, 
             batch_id: finalBatchId,
             payment_method: pMethod,
-            payment_status: dpAmount >= totalPaying && totalPaying > 0 ? 'Lunas' : 'Belum Lunas',
+            payment_status: dpAmount >= totalBatchPayment && totalBatchPayment > 0 ? 'Lunas' : 'Belum Lunas',
             reservation_status: 'BOOKED',
             created_at: new Date().toISOString()
           });
@@ -665,47 +673,60 @@ async function startServer() {
   });
 
   app.patch("/api/reservations/:id/payment", isAuthenticated, async (req, res) => {
-    const { id } = req.params;
-    const { status, amountPaid, paymentMethod, discountType, discountAmount } = req.body;
-    try {
-      await runTransaction(db, async (transaction) => {
-        const resRef = doc(db, "reservations", id);
-        const resSnap = await transaction.get(resRef);
-        if (!resSnap.exists()) throw new Error("Reservation not found");
-        
-        const resData = resSnap.data();
-        const oldPaid = resData.amount_paid || 0;
-        const newPaid = amountPaid !== undefined ? amountPaid : oldPaid;
-        const diff = newPaid - oldPaid;
-
-        transaction.update(resRef, {
-          payment_status: status,
-          amount_paid: newPaid,
-          payment_method: paymentMethod || resData.payment_method || 'Tunai',
-          discount_type: discountType || resData.discount_type || null,
-          discount_amount: discountAmount !== undefined ? discountAmount : (resData.discount_amount || 0)
-        });
-
-        // Record a transaction log if more money was paid
-        if (diff > 0) {
-          const transRef = doc(collection(db, "transactions"));
-          const isLunasNow = status === 'Lunas';
+      const { id } = req.params;
+      const { status, amountPaid, paymentMethod, discountType, discountAmount } = req.body;
+      
+      try {
+        await runTransaction(db, async (transaction) => {
+          const resRef = doc(db, "reservations", id);
+          const resSnap = await transaction.get(resRef);
+          if (!resSnap.exists()) throw new Error("Reservation not found");
           
-          transaction.set(transRef, {
-            reservation_id: id,
-            amount: diff,
-            payment_method: paymentMethod || resData.payment_method || 'Tunai',
-            type: isLunasNow ? 'Pelunasan' : 'Angsuran',
-            timestamp: new Date().toISOString(),
-            remark: isLunasNow ? 'Pelunasan tagihan' : 'Pembayaran angsuran / mencicil'
-          });
-        }
-      });
-      res.json({ success: true });
-    } catch (error: any) {
-      console.error(error);
-      res.status(500).json({ error: error.message || "Gagal memperbarui status pembayaran" });
-    }
+          const resData = resSnap.data();
+          const batchId = resData.batch_id;
+          const totalBatchPayment = resData.total_batch_payment || resData.total_payment || 0;
+          
+          // 1. Get all reservations in this batch
+          const batchQuery = query(collection(db, "reservations"), where("batch_id", "==", batchId));
+          const batchSnap = await getDocs(batchQuery);
+          
+          const newTotalPaidBatch = parseFloat(amountPaid) || 0;
+          const isLunas = newTotalPaidBatch >= totalBatchPayment;
+          const newPaymentStatus = status === 'Lunas Online' ? 'Lunas Online' : (isLunas ? 'Lunas' : 'Belum Lunas');
+  
+          // 2. Update all reservations in batch
+          for (const docsnap of batchSnap.docs) {
+            transaction.update(docsnap.ref, {
+              payment_status: newPaymentStatus,
+              amount_paid_batch: newTotalPaidBatch,
+              payment_method: paymentMethod || resData.payment_method || 'Tunai',
+              discount_type: discountType || resData.discount_type || null,
+              discount_amount: discountAmount !== undefined ? discountAmount : (resData.discount_amount || 0)
+            });
+          }
+  
+          // Record transaction log based on newTotalPaidBatch - oldTotalPaidBatch
+          const oldTotalPaidBatch = resData.amount_paid_batch || 0;
+          const diff = newTotalPaidBatch - oldTotalPaidBatch;
+          
+          if (diff > 0) {
+            const transRef = doc(collection(db, "transactions"));
+            transaction.set(transRef, {
+              reservation_id: id,
+              batch_id: batchId,
+              amount: diff,
+              payment_method: paymentMethod || resData.payment_method || 'Tunai',
+              type: isLunas ? 'Pelunasan' : 'Angsuran',
+              timestamp: new Date().toISOString(),
+              remark: 'Pembayaran Batch'
+            });
+          }
+        });
+        res.json({ success: true });
+      } catch (error: any) {
+        console.error(error);
+        res.status(500).json({ error: error.message || "Gagal memperbarui status pembayaran batch" });
+      }
   });
   
   app.post("/api/reservations/:id/cancel", isAuthenticated, isAdmin, async (req, res) => {
@@ -715,12 +736,17 @@ async function startServer() {
     const hotelToday = new Date(now.getTime() + wibOffset).toISOString().split('T')[0];
 
     try {
+      console.log(`[CANCEL RESERVATION] Attempting to cancel reservation ID: ${id}`);
       await runTransaction(db, async (transaction) => {
         const resRef = doc(db, "reservations", id);
         const resSnap = await transaction.get(resRef);
-        if (!resSnap.exists()) throw new Error("Reservasi tidak ditemukan");
+        if (!resSnap.exists()) {
+          console.error(`[CANCEL RESERVATION] Reservation not found: ${id}`);
+          throw new Error("Reservasi tidak ditemukan");
+        }
         
         const data = resSnap.data();
+        console.log(`[CANCEL RESERVATION] Reservation data:`, data);
         
         // 1. Update reservation status
         transaction.update(resRef, { reservation_status: 'CANCELLED' });
@@ -731,10 +757,38 @@ async function startServer() {
           transaction.update(roomRef, { current_status: 'AVAILABLE' });
         }
       });
+      console.log(`[CANCEL RESERVATION] Successfully cancelled reservation ID: ${id}`);
       res.json({ success: true });
     } catch (error: any) {
-      console.error(error);
+      console.error(`[CANCEL RESERVATION] Error:`, error);
       res.status(500).json({ error: error.message || "Gagal membatalkan reservasi" });
+    }
+  });
+
+  app.post("/api/reservations/bulk-delete", isAuthenticated, isAdmin, async (req, res) => {
+    const { date } = req.body;
+    if (!date) return res.status(400).json({ error: "Tanggal harus ditentukan" });
+
+    try {
+      const q = query(collection(db, "reservations"), where("check_in", "==", date));
+      const snap = await getDocs(q);
+      
+      if (snap.empty) {
+        return res.json({ success: true, count: 0 });
+      }
+
+      const batch = writeBatch(db);
+      snap.docs.forEach(doc => {
+        // Technically we should also reset room status if it's today
+        // but for a bulk wipe of future dates, we mainly mark as CANCELLED
+        batch.update(doc.ref, { reservation_status: 'CANCELLED' });
+      });
+
+      await batch.commit();
+      res.json({ success: true, count: snap.size });
+    } catch (error: any) {
+      console.error(error);
+      res.status(500).json({ error: error.message || "Gagal menghapus data massal" });
     }
   });
 

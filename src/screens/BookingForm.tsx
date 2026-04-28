@@ -37,6 +37,7 @@ export default function BookingForm({
 }) {
   const [roomTypes, setRoomTypes] = useState<any[]>([]);
   const [rooms, setRooms] = useState<any[]>([]);
+  const [bookingMode, setBookingMode] = useState<"regular" | "group">("regular");
   const [formData, setFormData] = useState({
     name: "",
     idNumber: "",
@@ -47,6 +48,8 @@ export default function BookingForm({
     paymentMethod: "Tunai",
     downPayment: 0
   });
+
+  const maxRegularRooms = 2;
   const [loading, setLoading] = useState(false);
   const [bookingDetails, setBookingDetails] = useState<any>(null);
   const [qrCode, setQrCode] = useState<string>("");
@@ -79,14 +82,42 @@ export default function BookingForm({
   }, [initialRoomNumber, initialRoomType]);
 
   const addRoom = () => {
+    if (bookingMode === "regular" && formData.selectedRooms.length >= maxRegularRooms) {
+      alert(`Regular Booking hanya diperbolehkan maksimal ${maxRegularRooms} kamar. Gunakan Group Booking untuk lebih banyak kamar.`);
+      return;
+    }
     setFormData({
       ...formData,
       selectedRooms: [...formData.selectedRooms, { roomType: "", roomNumber: "" }]
     });
   };
 
+  const handleModeChange = (mode: "regular" | "group") => {
+    setBookingMode(mode);
+    if (mode === "regular" && formData.selectedRooms.length > maxRegularRooms) {
+      setFormData({
+        ...formData,
+        selectedRooms: formData.selectedRooms.slice(0, maxRegularRooms)
+      });
+    } else if (mode === "group" && formData.selectedRooms.length < 3) {
+      // Ensure group starts with at least 3 if they transition? 
+      // User said "more than 2", so 3 is minimum for group.
+      const current = [...formData.selectedRooms];
+      while (current.length < 3) {
+        current.push({ roomType: "", roomNumber: "" });
+      }
+      setFormData({ ...formData, selectedRooms: current });
+    }
+  };
+
   const removeRoom = (index: number) => {
-    if (formData.selectedRooms.length <= 1) return;
+    const minRooms = bookingMode === "group" ? 3 : 1;
+    if (formData.selectedRooms.length <= minRooms) {
+      if (bookingMode === "group") {
+        alert("Group Booking minimal harus 3 kamar. Gunakan Regular Booking untuk pesanan yang lebih sedikit.");
+      }
+      return;
+    }
     const updated = [...formData.selectedRooms];
     updated.splice(index, 1);
     setFormData({ ...formData, selectedRooms: updated });
@@ -322,12 +353,36 @@ export default function BookingForm({
       className="max-w-4xl mx-auto px-6 pt-12 pb-32 space-y-12"
     >
       {/* Page Header */}
-      <div className="space-y-3">
-        <span className="text-primary font-headline font-extrabold text-xs tracking-[0.2em] uppercase">Multi-Room Reservation</span>
-        <h2 className="text-5xl font-headline font-extrabold tracking-tighter text-on-surface leading-tight">Batch Booking</h2>
-        <p className="text-on-surface-variant text-lg font-medium max-w-xl leading-relaxed opacity-70">
-          Kelola pesanan untuk beberapa kamar sekaligus. Ideal untuk tamu grup atau keluarga besar.
-        </p>
+      <div className="space-y-6">
+        <div className="space-y-3">
+          <span className="text-primary font-headline font-extrabold text-xs tracking-[0.2em] uppercase">Reservation System</span>
+          <h2 className="text-5xl font-headline font-extrabold tracking-tighter text-on-surface leading-tight">Create Booking</h2>
+          <p className="text-on-surface-variant text-lg font-medium max-w-xl leading-relaxed opacity-70">
+            Pilih metode reservasi yang sesuai dengan kebutuhan Anda.
+          </p>
+        </div>
+
+        {/* Sub-page Selector */}
+        <div className="flex bg-white p-1.5 rounded-3xl border border-outline-variant/10 shadow-sm w-fit">
+          <button 
+            onClick={() => handleModeChange("regular")}
+            className={cn(
+              "px-8 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all",
+              bookingMode === "regular" ? "bg-primary text-white shadow-lg shadow-primary/20" : "text-outline hover:bg-surface-container"
+            )}
+          >
+            Regular Booking (Max 2)
+          </button>
+          <button 
+            onClick={() => handleModeChange("group")}
+            className={cn(
+              "px-8 py-3 rounded-2xl text-xs font-black uppercase tracking-widest transition-all",
+              bookingMode === "group" ? "bg-primary text-white shadow-lg shadow-primary/20" : "text-outline hover:bg-surface-container"
+            )}
+          >
+            Group Booking (3+ Kamar)
+          </button>
+        </div>
       </div>
 
       <form className="space-y-10" onSubmit={handleSubmit}>
@@ -365,8 +420,66 @@ export default function BookingForm({
             </div>
           </div>
 
-          {/* Section 2: Unit Selection (Multi) */}
-          <div className="md:col-span-8 space-y-6">
+          {/* Section 2: Timeline */}
+          <div className="md:col-span-12 bg-white p-10 rounded-[2.5rem] shadow-[0_8px_48px_rgba(0,0,0,0.03)] border border-outline-variant/5">
+            <div className="flex items-center gap-4 mb-10 text-primary">
+              <div className="p-3 bg-primary/10 rounded-2xl">
+                <Calendar size={24} />
+              </div>
+              <h3 className="font-headline font-extrabold text-2xl tracking-tight">Stay Timeline</h3>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+              <div className="group">
+                <label className="block text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-3 pr-2 transition-colors group-focus-within:text-primary">Check-in</label>
+                <input 
+                  value={formData.checkIn}
+                  onChange={e => setFormData({ ...formData, checkIn: e.target.value })}
+                  className="w-full bg-surface-container-low border-none rounded-2xl px-6 py-5 focus:ring-4 focus:ring-primary/10 focus:bg-white transition-all text-on-surface font-bold" 
+                  type="date" 
+                />
+              </div>
+              <div className="group">
+                <label className="block text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-3 pr-2 transition-colors group-focus-within:text-primary">Check-out</label>
+                <input 
+                  value={formData.checkOut}
+                  onChange={e => setFormData({ ...formData, checkOut: e.target.value })}
+                  className="w-full bg-surface-container-low border-none rounded-2xl px-6 py-5 focus:ring-4 focus:ring-primary/10 focus:bg-white transition-all text-on-surface font-bold" 
+                  type="date" 
+                />
+              </div>
+
+              <div className="group">
+                <label className="block text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-3 pr-2 transition-colors group-focus-within:text-primary">Metode Pembayaran</label>
+                <select 
+                  value={formData.paymentMethod}
+                  onChange={e => setFormData({ ...formData, paymentMethod: e.target.value })}
+                  className="w-full bg-surface-container-low border-none rounded-2xl px-6 py-5 focus:ring-4 focus:ring-primary/10 focus:bg-white transition-all text-on-surface font-bold appearance-none cursor-pointer"
+                >
+                  <option value="Tunai">Tunai / Cash</option>
+                  <option value="Transfer Bank">Transfer Bank</option>
+                  <option value="Debit/QRIS">Debit / QRIS</option>
+                </select>
+              </div>
+
+              <div className="group">
+                <label className="block text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-3 pr-2 transition-colors group-focus-within:text-primary">Bayar DP (Opsional)</label>
+                <div className="relative">
+                  <span className="absolute left-5 top-1/2 -translate-y-1/2 font-black text-outline/40">Rp</span>
+                  <input 
+                    value={formData.downPayment}
+                    onChange={e => setFormData({ ...formData, downPayment: parseInt(e.target.value) || 0 })}
+                    className="w-full bg-surface-container-low border-none rounded-2xl pl-12 pr-6 py-5 focus:ring-4 focus:ring-primary/10 focus:bg-white transition-all text-on-surface font-bold" 
+                    type="number" 
+                    placeholder="0"
+                  />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 3: Unit Selection (Multi) */}
+          <div className="md:col-span-12 space-y-6">
             <div className="bg-white p-10 rounded-[2.5rem] shadow-[0_8px_48px_rgba(0,0,0,0.03)] border border-outline-variant/5">
               <div className="flex items-center justify-between mb-10">
                 <div className="flex items-center gap-4 text-primary">
@@ -374,6 +487,9 @@ export default function BookingForm({
                     <Building2 size={24} />
                   </div>
                   <h3 className="font-headline font-extrabold text-2xl tracking-tight">Room List</h3>
+                  <span className="text-[10px] font-bold text-outline-variant bg-surface-container px-2 py-0.5 rounded-full ml-4">
+                    {bookingMode === "regular" ? "Max 2 Kamar" : "Min 3 Kamar"}
+                  </span>
                 </div>
                 <button 
                   type="button"
@@ -385,7 +501,7 @@ export default function BookingForm({
                 </button>
               </div>
 
-              <div className="space-y-6 max-h-[400px] overflow-y-auto pr-4 no-scrollbar">
+              <div className="space-y-6 max-h-[600px] overflow-y-auto pr-4 no-scrollbar">
                 {formData.selectedRooms.map((selRoom, index) => (
                   <div key={index} className="flex flex-col md:flex-row items-end gap-6 p-6 bg-surface-container-low rounded-[2rem] border border-outline-variant/5 relative group">
                     <div className="flex-1 w-full">
@@ -433,65 +549,6 @@ export default function BookingForm({
             </div>
           </div>
 
-          <div className="md:col-span-4 space-y-8 flex flex-col">
-            {/* Timeline */}
-            <div className="bg-white p-10 rounded-[2.5rem] shadow-[0_8px_48px_rgba(0,0,0,0.03)] border border-outline-variant/5 flex-1">
-              <div className="flex items-center gap-4 mb-8 text-primary">
-                <div className="p-3 bg-primary/10 rounded-2xl">
-                  <Calendar size={24} />
-                </div>
-                <h3 className="font-headline font-extrabold text-2xl tracking-tight">Timeline</h3>
-              </div>
-              
-              <div className="space-y-6">
-                <div className="group">
-                  <label className="block text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-3 pr-2 transition-colors group-focus-within:text-primary">Check-in</label>
-                  <input 
-                    value={formData.checkIn}
-                    onChange={e => setFormData({ ...formData, checkIn: e.target.value })}
-                    className="w-full bg-surface-container-low border-none rounded-2xl px-6 py-5 focus:ring-4 focus:ring-primary/10 focus:bg-white transition-all text-on-surface font-bold" 
-                    type="date" 
-                  />
-                </div>
-                <div className="group">
-                  <label className="block text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-3 pr-2 transition-colors group-focus-within:text-primary">Check-out</label>
-                  <input 
-                    value={formData.checkOut}
-                    onChange={e => setFormData({ ...formData, checkOut: e.target.value })}
-                    className="w-full bg-surface-container-low border-none rounded-2xl px-6 py-5 focus:ring-4 focus:ring-primary/10 focus:bg-white transition-all text-on-surface font-bold" 
-                    type="date" 
-                  />
-                </div>
-
-                <div className="group">
-                  <label className="block text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-3 pr-2 transition-colors group-focus-within:text-primary">Metode Pembayaran</label>
-                  <select 
-                    value={formData.paymentMethod}
-                    onChange={e => setFormData({ ...formData, paymentMethod: e.target.value })}
-                    className="w-full bg-surface-container-low border-none rounded-2xl px-6 py-5 focus:ring-4 focus:ring-primary/10 focus:bg-white transition-all text-on-surface font-bold appearance-none cursor-pointer"
-                  >
-                    <option value="Tunai">Tunai / Cash</option>
-                    <option value="Transfer Bank">Transfer Bank</option>
-                    <option value="Debit/QRIS">Debit / QRIS</option>
-                  </select>
-                </div>
-
-                <div className="group">
-                  <label className="block text-[10px] font-bold text-on-surface-variant uppercase tracking-widest mb-3 pr-2 transition-colors group-focus-within:text-primary">Bayar DP (Opsional)</label>
-                  <div className="relative">
-                    <span className="absolute left-5 top-1/2 -translate-y-1/2 font-black text-outline/40">Rp</span>
-                    <input 
-                      value={formData.downPayment}
-                      onChange={e => setFormData({ ...formData, downPayment: parseInt(e.target.value) || 0 })}
-                      className="w-full bg-surface-container-low border-none rounded-2xl pl-12 pr-6 py-5 focus:ring-4 focus:ring-primary/10 focus:bg-white transition-all text-on-surface font-bold" 
-                      type="number" 
-                      placeholder="0"
-                    />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
         </div>
 
         {/* Action Area (Summarized and Consolidated) */}

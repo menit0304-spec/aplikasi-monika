@@ -21,9 +21,11 @@ import {
 } from "lucide-react";
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import { fetchReservations, updatePaymentStatus, fetchRooms, cancelReservation } from "../services/dataService";
+import { fetchReservations, updatePaymentStatus, fetchRooms, cancelReservation, bulkDeleteReservations } from "../services/dataService";
 import { Reservation, Room } from "../types";
 import { cn } from "../lib/utils";
+import { format } from "date-fns";
+import { id as idLocale } from "date-fns/locale";
 
 export default function PaymentOverview({ 
   initialSearch = "", 
@@ -77,7 +79,31 @@ export default function PaymentOverview({
       .finally(() => setLoading(false));
   };
   
+  const handleBulkDelete = async () => {
+    // We'll use the searchTerm as a date if it's in YYYY-MM-DD format, or we can use a dedicated state if we add a date filter.
+    // Looking at the code, it uses searchTerm for filtering.
+    // If the user wants to delete all starting on 7 May 2026, they would search "2026-05-07".
+    if (!searchTerm || !/^\d{4}-\d{2}-\d{2}$/.test(searchTerm)) {
+      alert("Silakan masukkan tanggal filter (format YYYY-MM-DD) di kolom pencarian untuk menghapus massal.");
+      return;
+    }
+
+    if (!window.confirm(`PERINGATAN: Hapus SEMUA bookingan di tanggal ${searchTerm}? Tindakan ini tidak dapat dibatalkan.`)) return;
+
+    setLoading(true);
+    try {
+      const result = await bulkDeleteReservations(searchTerm);
+      alert(`Berhasil membatalkan ${result.count} reservasi.`);
+      loadData();
+    } catch (err: any) {
+      alert("Gagal menghapus masal: " + err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleCancelReservation = async (res: Reservation) => {
+    console.log("[CANCEL] handleCancelReservation called for:", res);
     if (!window.confirm(`Apakah Anda yakin ingin membatalkan seluruh booking untuk ${res.guest_name}? Kamar ${res.room_number} akan tersedia kembali.`)) return;
     
     setLoading(true);
@@ -316,18 +342,18 @@ export default function PaymentOverview({
     
     // We update the total amount_paid by adding the new payment
     const newTotalPaid = paymentForm.alreadyPaid + paymentForm.amountPaid;
-    const isLunas = paymentForm.status === "Lunas" || (newTotalPaid >= (selectedRes.total_payment - paymentForm.discountAmount));
+    // status is now passed from form
+    const finalStatus = paymentForm.status;
 
     try {
-      console.log("Submitting payment for:", selectedRes.id, {
-        status: isLunas ? "Lunas" : "Belum Lunas",
+      console.log("Submitting payment for batch:", selectedRes.batch_id, {
+        status: finalStatus,
         amountPaid: newTotalPaid,
       });
 
       const response = await updatePaymentStatus(selectedRes.id, {
-        status: isLunas ? "Lunas" : "Belum Lunas",
+        status: finalStatus,
         amountPaid: newTotalPaid,
-        downPayment: selectedRes.down_payment || 0,
         paymentMethod: paymentForm.paymentMethod,
         discountType: paymentForm.discountType,
         discountAmount: paymentForm.discountAmount
@@ -437,15 +463,26 @@ export default function PaymentOverview({
                 className="w-full pl-12 pr-4 py-3 bg-white/50 border-none rounded-2xl text-sm focus:ring-4 focus:ring-primary/10 transition-all outline-none"
                />
                {searchTerm && (
-                 <button 
-                  onClick={() => {
-                    setSearchTerm("");
-                    if (onSearchClear) onSearchClear();
-                  }}
-                  className="absolute right-4 top-1/2 -translate-y-1/2 text-outline/40 hover:text-error"
-                 >
-                   <X size={14} />
-                 </button>
+                 <div className="absolute right-4 top-1/2 -translate-y-1/2 flex items-center gap-2">
+                    {accessMode === 'authorized' && /^\d{4}-\d{2}-\d{2}$/.test(searchTerm) && (
+                      <button 
+                        onClick={handleBulkDelete}
+                        className="bg-error text-white px-3 py-1 rounded-lg text-[9px] font-black uppercase tracking-widest hover:opacity-90 active:scale-95 transition-all shadow-sm"
+                        title="Hapus semua bookingan di tanggal ini"
+                      >
+                        Hapus Semua
+                      </button>
+                    )}
+                   <button 
+                    onClick={() => {
+                      setSearchTerm("");
+                      if (onSearchClear) onSearchClear();
+                    }}
+                    className="text-outline/40 hover:text-error"
+                   >
+                     <X size={14} />
+                   </button>
+                 </div>
                )}
             </div>
           </div>
@@ -626,7 +663,10 @@ export default function PaymentOverview({
 
                 {accessMode === 'authorized' && (
                   <button 
-                    onClick={() => handleCancelReservation(res)}
+                    onClick={() => {
+                        console.log("[CANCEL] List-view button clicked");
+                        handleCancelReservation(res);
+                    }}
                     className="flex-1 md:w-14 md:h-14 md:flex-none bg-error/5 rounded-2xl flex flex-col items-center justify-center text-error hover:bg-error hover:text-white transition-all active:scale-90 border border-error/10"
                     title="Batalkan Booking"
                   >
@@ -848,15 +888,15 @@ export default function PaymentOverview({
                        <label className="text-[10px] font-black uppercase tracking-[0.15em] text-outline flex items-center gap-2">
                          Status Akhir
                        </label>
-                      <div className="grid grid-cols-2 gap-2">
-                        {["Belum Lunas", "Lunas"].map((st) => (
+                      <div className="grid grid-cols-3 gap-2">
+                        {["Belum Lunas", "Lunas", "Lunas Online"].map((st) => (
                            <button
                             key={st}
                             onClick={() => setPaymentForm({ ...paymentForm, status: st as any })}
                             className={cn(
-                              "px-4 py-3 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all border",
+                              "px-2 py-3 rounded-2xl text-[9px] min-[400px]:text-[10px] font-black uppercase tracking-widest transition-all border",
                               paymentForm.status === st 
-                                ? (st === "Lunas" ? "bg-emerald-500 text-white border-emerald-500" : "bg-orange-500 text-white border-orange-500")
+                                ? (st === "Lunas" ? "bg-emerald-500 text-white border-emerald-500" : st === "Lunas Online" ? "bg-primary text-white border-primary" : "bg-orange-500 text-white border-orange-500")
                                 : "bg-white border-outline-variant/10 text-outline hover:border-outline"
                             )}
                           >

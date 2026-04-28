@@ -79,6 +79,13 @@ export async function cancelReservation(id: string | number) {
   });
 }
 
+export async function bulkDeleteReservations(date: string) {
+  return apiFetch(`/api/reservations/bulk-delete`, {
+    method: "POST",
+    body: JSON.stringify({ date })
+  });
+}
+
 export async function updateRoomStatus(roomId: string, status: string, date?: string, walkInGuest?: { 
   name: string, 
   phoneNumber: string, 

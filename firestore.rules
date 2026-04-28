@@ -15,37 +15,50 @@ service cloud.firestore {
       return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
     }
 
-    // Since the app is currently in "Public Access" mode in server.ts (bypass auth),
-    // but we want to prep for real security.
-    // For AI Studio build preview, we often allow all if we don't have a login system yet,
-    // but the user asked for a "database for payments", implying structure and security.
-    
-    match /guests/{guestId} {
-      allow read, write: if true; // Temporary: Allow all for development
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isAdmin() {
+      // In this app, we check if the user.email is in a list or has a specific claim.
+      // For simplicity in AI Studio, we often allow based on auth.token.email if known,
+      // but let's stick to isSignedIn() for now or specific admin collection lookup.
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+             get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
     }
 
     match /users/{userId} {
-      allow read, write: if true; // Temporary: Allow all for development
+      allow read: if isSignedIn() && (request.auth.uid == userId || isAdmin());
+      allow write: if isAdmin();
+    }
+
+    match /guests/{guestId} {
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
     }
 
     match /rooms/{roomId} {
-      allow read: if true;
-      allow write: if true;
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
     }
 
     match /room_types/{typeId} {
-      allow read: if true;
-      allow write: if true;
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
     }
 
     match /reservations/{resId} {
-      allow read: if true;
-      allow write: if true;
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
     }
 
     match /transactions/{transId} {
-      allow read: if true;
-      allow write: if true;
+      allow read: if isSignedIn();
+      allow write: if isSignedIn();
     }
   }
 }

@@ -4,6 +4,7 @@ import { fetchRooms } from "../services/dataService";
 import { Room } from "../types";
 import { cn } from "../lib/utils";
 import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, RotateCw, LogOut } from "lucide-react";
+import SimpleCalendar from "../components/SimpleCalendar";
 
 export default function Dashboard({ 
   selectedDate, 
@@ -18,6 +19,7 @@ export default function Dashboard({
 }) {
   const [rooms, setRooms] = useState<Room[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showCalendar, setShowCalendar] = useState(false);
   const getLocalDateString = () => {
     const d = new Date();
     const year = d.getFullYear();
@@ -128,9 +130,15 @@ export default function Dashboard({
             <ChevronLeft size={24} />
           </button>
           
-          <div className="flex items-center gap-4 px-6 py-3 bg-white rounded-2xl border border-outline-variant/10 shadow-sm min-w-[240px] justify-center relative group hover:border-primary/30 transition-all">
+          <div 
+             className="relative flex items-center gap-4 px-6 py-3 bg-white rounded-2xl border border-outline-variant/10 shadow-sm min-w-[240px] justify-center hover:border-primary/30 transition-all cursor-pointer" 
+             onClick={() => setShowCalendar(!showCalendar)}
+          >
             <CalendarIcon size={20} className="text-primary" />
             <span className="text-sm font-black text-on-surface uppercase tracking-tight">{formattedDate}</span>
+            {showCalendar && (
+               <SimpleCalendar selectedDate={selectedDate} onSelect={(d) => { onDateChange(d); setShowCalendar(false); }} onClose={() => setShowCalendar(false)} />
+            )}
             <input 
               type="date" 
               value={selectedDate}
