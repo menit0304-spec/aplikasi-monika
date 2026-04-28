@@ -104,50 +104,54 @@ export default function PaymentOverview({ initialSearch = "", onSearchClear }: {
     
     // Header
     const logo = '/logo.png';
-    doc.addImage(logo, 'PNG', 14, 10, 40, 40);
+    try {
+      doc.addImage(logo, 'PNG', 85, 10, 40, 40);
+    } catch(e) {
+      console.error("Could not load logo:", e);
+    }
     doc.setFontSize(22);
     doc.setTextColor(26, 28, 28);
-    doc.text("HOTEL MONIKA", 60, 22);
+    doc.text("HOTEL MONIKA", 105 - (doc.getTextWidth("HOTEL MONIKA") / 2), 58);
     
     doc.setFontSize(10);
     doc.setTextColor(100);
-    doc.text("Yogyakarta Management System", 60, 28);
-    doc.text(`Tanggal: ${date}`, 60, 34);
+    doc.text("Yogyakarta Management System", 105 - (doc.getTextWidth("Yogyakarta Management System") / 2), 64);
+    doc.text(`Tanggal: ${date}`, 105 - (doc.getTextWidth(`Tanggal: ${date}`) / 2), 70);
     
     doc.setFontSize(14);
     doc.setTextColor(26, 28, 28);
-    doc.text("INVOICE PEMBAYARAN", 14, 48);
+    doc.text("INVOICE PEMBAYARAN", 14, 85);
     doc.setFontSize(10);
-    doc.text(`ID Transaksi: #${res.id}`, 14, 54);
+    doc.text(`ID Transaksi: #${res.id}`, 14, 91);
     
     // Horizontal Line
     doc.setDrawColor(230);
-    doc.line(14, 60, 196, 60);
+    doc.line(14, 97, 196, 97);
     
     // Details Section
     doc.setFontSize(10);
-    doc.text("INFORMASI TAMU:", 14, 70);
+    doc.text("INFORMASI TAMU:", 14, 107);
     doc.setFont("helvetica", "bold");
-    doc.text(res.guest_name || "Guest Name", 14, 76);
+    doc.text(res.guest_name || "Guest Name", 14, 113);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
-    doc.text(`NIK: ${res.guest_id_number || '-'}`, 14, 82);
-    doc.text(`Tel: ${res.guest_phone || '-'}`, 14, 86);
+    doc.text(`NIK: ${res.guest_id_number || '-'}`, 14, 119);
+    doc.text(`Tel: ${res.guest_phone || '-'}`, 14, 123);
     doc.setFontSize(10);
     
-    doc.text("DETAIL UNIT:", 120, 70);
+    doc.text("DETAIL UNIT:", 120, 107);
     doc.setFont("helvetica", "bold");
-    doc.text(`Kamar ${res.room_number}`, 120, 76);
+    doc.text(`Kamar ${res.room_number}`, 120, 113);
     doc.setFont("helvetica", "normal");
     doc.setFontSize(8);
-    doc.text(`Tipe: ${res.room_type || 'Unknown'}`, 120, 82);
-    doc.text(`Durasi: ${res.total_nights} Malam`, 120, 86);
-    doc.text(`Check-in: ${res.check_in}`, 120, 90);
-    doc.text(`Check-out: ${res.check_out}`, 120, 94);
+    doc.text(`Tipe: ${res.room_type || 'Unknown'}`, 120, 119);
+    doc.text(`Durasi: ${res.total_nights} Malam`, 120, 123);
+    doc.text(`Check-in: ${res.check_in}`, 120, 127);
+    doc.text(`Check-out: ${res.check_out}`, 120, 131);
     
     // Table Breakdown
     autoTable(doc, {
-      startY: 105,
+      startY: 140,
       head: [['Deskripsi', 'Jumlah']],
       body: [
         ['Total Biaya Kamar', `Rp ${res.total_payment.toLocaleString()}`],
