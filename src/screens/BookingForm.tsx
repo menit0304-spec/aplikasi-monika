@@ -1,6 +1,9 @@
 import { motion } from "framer-motion";
 import React, { useEffect, useState } from "react";
-import { User, Building2, Calendar, ShieldCheck, ArrowRight, Info, CheckCircle2, Plus, Trash2 } from "lucide-react";
+import { User, Building2, Calendar, ShieldCheck, ArrowRight, Info, CheckCircle2, Plus, Trash2, Download } from "lucide-react";
+import QRCode from 'qrcode';
+import jsPDF from 'jspdf';
+import autoTable from 'jspdf-autotable';
 import { createReservation, fetchRoomTypes, fetchRooms } from "../services/dataService";
 import { cn } from "../lib/utils";
 // Removed RoomCalendar import as requested
@@ -43,7 +46,20 @@ export default function BookingForm({
     downPayment: 0
   });
   const [loading, setLoading] = useState(false);
-  const [success, setSuccess] = useState(false);
+  const [bookingDetails, setBookingDetails] = useState<any>(null);
+  const [qrCode, setQrCode] = useState<string>("");
+
+  useEffect(() => {
+    if (bookingDetails) {
+       QRCode.toDataURL(JSON.stringify({
+         batchId: bookingDetails.batchId,
+         name: bookingDetails.name,
+         rooms: bookingDetails.selectedRooms,
+         checkIn: bookingDetails.checkIn,
+         checkOut: bookingDetails.checkOut
+       }), { width: 300 }).then(setQrCode);
+    }
+  }, [bookingDetails]);
 
   useEffect(() => {
     fetchRoomTypes().then(setRoomTypes);
@@ -110,7 +126,7 @@ export default function BookingForm({
         };
       });
 
-      await createReservation({
+      const res = await createReservation({
         name: formData.name,
         idNumber: formData.idNumber,
         phoneNumber: formData.phoneNumber,
@@ -120,9 +136,9 @@ export default function BookingForm({
         rooms: roomPayload,
         paymentMethod: formData.paymentMethod,
         downPayment: formData.downPayment,
-        batchId: `B-${Date.now()}` // Generate batch id
+        batchId: `B-${Date.now()}`
       });
-      setSuccess(true);
+      setBookingDetails({ ...formData, batchId: res.batchId });
     } catch (error: any) {
       console.error(error);
       if (error.status !== 401 && error.message !== "Unauthorized") {
@@ -142,7 +158,43 @@ export default function BookingForm({
     }, 0);
   };
 
-  if (success) {
+  const downloadPDF = () => {
+    const doc = new jsPDF();
+    
+    // Header
+    doc.setFontSize(18);
+    doc.text("SURAT KONFIRMASI BOOKING", 105, 20, { align: 'center' });
+    
+    doc.setFontSize(12);
+    doc.text(`Kode Booking: ${bookingDetails.batchId}`, 20, 40);
+    doc.text(`Nama: ${bookingDetails.name}`, 20, 50);
+    doc.text(`No HP: ${bookingDetails.phoneNumber}`, 20, 60);
+    doc.text(`Check-in: ${bookingDetails.checkIn}`, 20, 70);
+    doc.text(`Check-out: ${bookingDetails.checkOut}`, 20, 80);
+    
+    // Rooms table
+    autoTable(doc, {
+        startY: 90,
+        head: [['Kamar', 'Tipe']],
+        body: bookingDetails.selectedRooms.map((r: any) => [r.roomNumber, r.roomType])
+    });
+
+    // Terms
+    doc.setFontSize(10);
+    doc.setTextColor(255, 0, 0); // Red for warning
+    doc.text("PERHATIAN:", 20, doc.lastAutoTable.finalY + 15);
+    doc.text("Max pembayaran DP 2x24 jam.", 20, doc.lastAutoTable.finalY + 20);
+    doc.text("Apabila tidak ada DP atau pelunasan dalam waktu tersebut, booking dianggap batal secara otomatis.", 20, doc.lastAutoTable.finalY + 25);
+    
+    // QR Code
+    if (qrCode) {
+        doc.addImage(qrCode, 'PNG', 80, doc.lastAutoTable.finalY + 40, 50, 50);
+    }
+    
+    doc.save(`Booking_${bookingDetails.batchId}.pdf`);
+  };
+
+  if (bookingDetails) {
     return (
       <motion.div 
         initial={{ opacity: 0, scale: 0.9 }}
@@ -153,10 +205,34 @@ export default function BookingForm({
           <CheckCircle2 size={48} />
         </div>
         <h2 className="text-3xl font-headline font-extrabold mb-4">Booking Berhasil!</h2>
-        <p className="text-on-surface-variant mb-10">Data reservasi (multi-room) telah tersimpan di database Hotel Monika Yogyakarta.</p>
+        <p className="text-on-surface-variant mb-4 text-sm">Kode Booking: <span className="font-bold text-lg">{bookingDetails.batchId}</span></p>
+        <p className="text-error text-xs mb-6 font-bold">INFO: Max pembayaran DP 2x24 jam. Jika lewat, booking batal otomatis.</p>
+        
+        {qrCode && (
+          <div className="mb-8 flex justify-center">
+            <img src={qrCode} alt="QR Code Booking" className="w-48 h-48" />
+          </div>
+        )}
+        
+        <div className="text-left text-sm space-y-2 mb-10 bg-surface-container-low p-6 rounded-2xl">
+          <p><strong>Nama:</strong> {bookingDetails.name}</p>
+          <p><strong>No HP:</strong> {bookingDetails.phoneNumber}</p>
+          <p><strong>Check-in:</strong> {bookingDetails.checkIn}</p>
+          <p><strong>Check-out:</strong> {bookingDetails.checkOut}</p>
+          <p><strong>Kamar:</strong> {bookingDetails.selectedRooms.map((r:any) => r.roomNumber).join(', ')}</p>
+        </div>
+
+        <button 
+          onClick={downloadPDF}
+          className="bg-secondary text-on-secondary px-10 py-4 rounded-2xl font-bold mb-4 shadow-xl w-full flex items-center justify-center gap-2"
+        >
+          <Download size={20} />
+          Download PDF Konfirmasi
+        </button>
+
         <button 
           onClick={() => {
-            setSuccess(false);
+            setBookingDetails(null);
             setFormData({
               name: "",
               idNumber: "",
@@ -164,11 +240,13 @@ export default function BookingForm({
               selectedRooms: [{ roomType: "", roomNumber: "" }],
               checkIn: "",
               checkOut: "",
+              paymentMethod: "Tunai",
+              downPayment: 0
             });
           }}
-          className="bg-primary text-white px-10 py-4 rounded-2xl font-bold shadow-xl shadow-primary/20"
+          className="bg-primary text-white px-10 py-4 rounded-2xl font-bold shadow-xl shadow-primary/20 w-full"
         >
-          Buat Booking Baru
+          Tutup & Buat Baru
         </button>
       </motion.div>
     );

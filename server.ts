@@ -255,6 +255,33 @@ async function startServer() {
   };
   ensureAdmin();
 
+  // Automatic Cancellation Task: every 1 hour
+  setInterval(async () => {
+    try {
+      const now = new Date();
+      const fortyEightHoursAgo = new Date(now.getTime() - (48 * 60 * 60 * 1000));
+      
+      const q = query(
+        collection(db, "reservations"),
+        where("reservation_status", "in", ["BOOKED", "PENDING"])
+      );
+      const snapshot = await getDocs(q);
+      
+      for (const resDoc of snapshot.docs) {
+        const data = resDoc.data();
+        if (data.created_at) {
+          const createdAt = new Date(data.created_at);
+          if (createdAt < fortyEightHoursAgo && data.payment_status !== 'Lunas') {
+            await updateDoc(resDoc.ref, { reservation_status: 'CANCELLED' });
+            console.log(`[JOB] Auto-cancelled reservation ${resDoc.id} due to payment timeout`);
+          }
+        }
+      }
+    } catch (e) {
+      console.error("[JOB] Failed running auto-cancellation:", e);
+    }
+  }, 60 * 60 * 1000);
+
   // User Management (Admin Only)
   app.get("/api/users", isAuthenticated, isAdmin, async (req, res) => {
     try {
@@ -574,7 +601,7 @@ async function startServer() {
         }
       });
 
-      res.status(201).json({ success: true });
+      res.status(201).json({ success: true, batchId: finalBatchId });
     } catch (error) {
       console.error(error);
       res.status(500).json({ error: "Failed to create reservation" });
